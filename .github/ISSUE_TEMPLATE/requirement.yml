@@ -1,0 +1,49 @@
+name: Product requirement
+description: Propose a testable hotel booking capability
+title: "[Requirement] "
+labels: ["status:new"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the outcome, not an implementation. Automated triage will add area, priority, kind, and complexity labels.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: Who needs what, and why?
+      placeholder: As a hotel guest, I need...
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the observable product behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Use testable statements.
+      value: |
+        - [ ] Acceptance criterion one
+        - [ ] Acceptance criterion two
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and constraints
+      description: Include screenshots, accessibility needs, data rules, or non-goals.
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Business impact
+      options:
+        - Normal
+        - Important
+        - Blocking
+    validations:
+      required: true

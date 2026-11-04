@@ -1,0 +1,22 @@
+name: 00 - Set up repository labels
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  labels:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create or update workshop labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const automation = require('./.github/scripts/issue-automation.js')
+            const { owner, repo } = context.repo
+            await automation.ensureLabels(github, owner, repo)
+            core.notice(`Configured ${automation.labelDefinitions.length} labels.`)

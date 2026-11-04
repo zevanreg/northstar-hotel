@@ -1,0 +1,90 @@
+name: 06 - Simulate production release
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  validate-and-release:
+    if: ${{ github.event.label.name == 'release-to-production' && contains(github.event.issue.labels.*.name, 'ready-for-qa') }}
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+      PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+      PROJECT_OWNER_TYPE: ${{ vars.PROJECT_OWNER_TYPE }}
+      PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: src/hotel-booking-web/package-lock.json
+      - name: Run release tests
+        run: dotnet test HotelBooking.slnx --configuration Release
+      - name: Build release web assets
+        working-directory: src/hotel-booking-web
+        run: |
+          npm ci
+          npm run build
+      - name: Create simulated release manifest
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        shell: bash
+        run: |
+          mkdir -p release
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg commit "$GITHUB_SHA" \
+            --arg issue "$ISSUE_NUMBER" \
+            --arg run "$GITHUB_RUN_ID" \
+            --arg releasedAt "$(date -u +%FT%TZ)" \
+            '{repository:$repository, commit:$commit, issue:$issue, run:$run, releasedAt:$releasedAt, environment:"simulation"}' \
+            > release/manifest.json
+          cp -R src/hotel-booking-web/dist release/web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: simulated-production-release
+          path: release
+          retention-days: 7
+      - name: Complete the work item
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          gh label create "released" --color "006B75" \
+            --description "The simulated release workflow completed" --force
+          gh issue edit "$ISSUE_NUMBER" --add-label "released"
+          gh issue comment "$ISSUE_NUMBER" --body \
+            "Release simulation passed all tests and produced an artifact: $RUN_URL"
+      - name: Synchronize released status to the Project
+        if: ${{ env.PROJECT_TOKEN != '' && env.PROJECT_OWNER != '' && env.PROJECT_NUMBER != '' }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const project = require('./.github/scripts/project-sync.js')
+            const { data: issue } = await github.rest.issues.get({
+              ...context.repo,
+              issue_number: context.payload.issue.number
+            })
+            await project.syncProject({
+              github,
+              context,
+              core,
+              ownerType: process.env.PROJECT_OWNER_TYPE || 'organization',
+              projectOwner: process.env.PROJECT_OWNER,
+              projectNumber: process.env.PROJECT_NUMBER,
+              issue
+            })

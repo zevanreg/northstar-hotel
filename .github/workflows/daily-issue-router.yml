@@ -1,0 +1,29 @@
+name: 02 - Route top ready issues
+
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  route:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select the top issue for each implementation lane
+        uses: actions/github-script@v7
+        env:
+          HUMAN_MAINTAINER: ${{ vars.HUMAN_MAINTAINER }}
+        with:
+          script: |
+            const automation = require('./.github/scripts/issue-automation.js')
+            await automation.routeDaily({
+              github,
+              context,
+              core,
+              maintainer: process.env.HUMAN_MAINTAINER
+            })

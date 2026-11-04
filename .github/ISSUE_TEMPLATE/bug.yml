@@ -1,0 +1,42 @@
+name: Bug report
+description: Report incorrect hotel booking behavior
+title: "[Bug] "
+labels: ["status:new"]
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should happen?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Add logs or screenshots with sensitive data removed.
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - Minor
+        - Important
+        - Critical
+    validations:
+      required: true

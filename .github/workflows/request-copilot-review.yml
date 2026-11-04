@@ -1,0 +1,39 @@
+name: 04 - Start automatic Copilot code review
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Start Copilot review
+        id: request
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/requested_reviewers" \
+            --field 'reviewers[]=copilot-pull-request-reviewer[bot]'
+      - name: Record unavailable reviewer
+        if: ${{ steps.request.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          gh pr comment "$PR_NUMBER" --body \
+            "Automatic Copilot code review could not start. Confirm the organization code-review policy or enable automatic Copilot review in the repository ruleset."

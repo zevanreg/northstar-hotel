@@ -1,0 +1,43 @@
+name: Sync issue to GitHub Project
+
+on:
+  issues:
+    types: [opened, labeled, unlabeled, reopened, closed]
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    if: ${{ vars.PROJECT_OWNER != '' && vars.PROJECT_NUMBER != '' }}
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+      PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+      PROJECT_OWNER_TYPE: ${{ vars.PROJECT_OWNER_TYPE }}
+      PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Explain missing project token
+        if: ${{ env.PROJECT_TOKEN == '' }}
+        run: echo "::warning::PROJECT_TOKEN is not configured; project sync was skipped."
+      - name: Add issue and update project status
+        if: ${{ env.PROJECT_TOKEN != '' }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const project = require('./.github/scripts/project-sync.js')
+            const { data: issue } = await github.rest.issues.get({
+              ...context.repo,
+              issue_number: context.payload.issue.number
+            })
+            await project.syncProject({
+              github,
+              context,
+              core,
+              ownerType: process.env.PROJECT_OWNER_TYPE || 'organization',
+              projectOwner: process.env.PROJECT_OWNER,
+              projectNumber: process.env.PROJECT_NUMBER,
+              issue
+            })

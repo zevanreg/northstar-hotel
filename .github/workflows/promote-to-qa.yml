@@ -1,0 +1,118 @@
+name: 05 - Promote reviewed work to QA
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+      PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+      PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+      PROJECT_OWNER_TYPE: ${{ vars.PROJECT_OWNER_TYPE }}
+      PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+    steps:
+      - name: Record non-Copilot review
+        if: ${{ github.event.review.user.type != 'Bot' || (github.actor != 'Copilot' && !startsWith(github.event.review.user.login, 'copilot-pull-request-reviewer')) }}
+        env:
+          REVIEWER_LOGIN: ${{ github.event.review.user.login }}
+        run: echo "::notice::Review by $REVIEWER_LOGIN recorded; QA promotion waits for Copilot's submitted review."
+      - uses: actions/checkout@v4
+        if: ${{ github.event.review.user.type == 'Bot' && (github.actor == 'Copilot' || startsWith(github.event.review.user.login, 'copilot-pull-request-reviewer')) }}
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Require successful pull request checks
+        if: ${{ github.event.review.user.type == 'Bot' && (github.actor == 'Copilot' || startsWith(github.event.review.user.login, 'copilot-pull-request-reviewer')) }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          for attempt in $(seq 1 40); do
+            check="$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
+              --jq '[.check_runs[] | select(.name == "validate")] | sort_by(.started_at) | last | [.status, .conclusion] | @tsv')"
+
+            if [ -n "$check" ]; then
+              status="$(cut -f1 <<<"$check")"
+              conclusion="$(cut -f2 <<<"$check")"
+              if [ "$status" = "completed" ]; then
+                if [ "$conclusion" = "success" ]; then
+                  exit 0
+                fi
+                echo "::error::The validate check concluded with $conclusion."
+                exit 1
+              fi
+            fi
+
+            sleep 15
+          done
+
+          echo "::error::The validate check did not complete within 10 minutes."
+          exit 1
+      - name: Tag linked issues as ready for QA
+        if: ${{ github.event.review.user.type == 'Bot' && (github.actor == 'Copilot' || startsWith(github.event.review.user.login, 'copilot-pull-request-reviewer')) }}
+        id: qa
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          gh label create "ready-for-qa" --color "FBCA04" \
+            --description "Implementation and Copilot review are complete" --force
+
+          issue_numbers="$(gh pr view "$PR_NUMBER" --json closingIssuesReferences \
+            --jq '.closingIssuesReferences[].number')"
+          {
+            echo "issue_numbers<<EOF"
+            echo "$issue_numbers"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ -z "$issue_numbers" ]; then
+            gh pr comment "$PR_NUMBER" --body \
+              "Copilot review completed, but no issue is linked. Add \`Closes #<issue>\` to the PR description."
+            exit 0
+          fi
+
+          while read -r issue_number; do
+            gh issue edit "$issue_number" --add-label "ready-for-qa" \
+              --remove-label "develop-with-ai"
+            gh issue comment "$issue_number" --body \
+              "Copilot code review completed on #$PR_NUMBER. This work is now \`ready-for-qa\`."
+          done <<< "$issue_numbers"
+      - name: Synchronize QA status to the Project
+        if: ${{ github.event.review.user.type == 'Bot' && (github.actor == 'Copilot' || startsWith(github.event.review.user.login, 'copilot-pull-request-reviewer')) && steps.qa.outputs.issue_numbers != '' && env.PROJECT_TOKEN != '' && env.PROJECT_OWNER != '' && env.PROJECT_NUMBER != '' }}
+        uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBERS: ${{ steps.qa.outputs.issue_numbers }}
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const project = require('./.github/scripts/project-sync.js')
+            const issueNumbers = process.env.ISSUE_NUMBERS.split(/\s+/).filter(Boolean)
+            for (const issueNumber of issueNumbers) {
+              const { data: issue } = await github.rest.issues.get({
+                ...context.repo,
+                issue_number: Number(issueNumber)
+              })
+              await project.syncProject({
+                github,
+                context,
+                core,
+                ownerType: process.env.PROJECT_OWNER_TYPE || 'organization',
+                projectOwner: process.env.PROJECT_OWNER,
+                projectNumber: process.env.PROJECT_NUMBER,
+                issue
+              })
+            }

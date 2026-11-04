@@ -1,0 +1,47 @@
+name: 01 - Triage issue
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  triage:
+    if: ${{ !github.event.issue.pull_request }}
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+      PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+      PROJECT_OWNER_TYPE: ${{ vars.PROJECT_OWNER_TYPE }}
+      PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Classify, score, label, and explain
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const automation = require('./.github/scripts/issue-automation.js')
+            await automation.triage({ github, context, core })
+      - name: Synchronize triaged status to the Project
+        if: ${{ env.PROJECT_TOKEN != '' && env.PROJECT_OWNER != '' && env.PROJECT_NUMBER != '' }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const project = require('./.github/scripts/project-sync.js')
+            const { data: issue } = await github.rest.issues.get({
+              ...context.repo,
+              issue_number: context.payload.issue.number
+            })
+            await project.syncProject({
+              github,
+              context,
+              core,
+              ownerType: process.env.PROJECT_OWNER_TYPE || 'organization',
+              projectOwner: process.env.PROJECT_OWNER,
+              projectNumber: process.env.PROJECT_NUMBER,
+              issue
+            })

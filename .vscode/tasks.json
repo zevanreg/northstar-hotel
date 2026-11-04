@@ -1,0 +1,46 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "api: run",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "src/HotelBooking.Api",
+        "--urls",
+        "http://localhost:5050"
+      ],
+      "isBackground": true,
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "web: run",
+      "type": "npm",
+      "script": "dev",
+      "path": "src/hotel-booking-web",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "app: run",
+      "dependsOrder": "parallel",
+      "dependsOn": [
+        "api: run",
+        "web: run"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "app: test",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "test",
+        "HotelBooking.slnx"
+      ],
+      "problemMatcher": "$msCompile"
+    }
+  ]
+}
