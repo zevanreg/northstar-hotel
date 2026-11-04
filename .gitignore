@@ -2,6 +2,7 @@
 **/obj/
 **/node_modules/
 **/dist/
+*.tsbuildinfo
 .vs/
 .vscode/*.local.json
 *.user
