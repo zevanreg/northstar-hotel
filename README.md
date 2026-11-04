@@ -4,7 +4,7 @@ A local-first boutique-hotel booking demo for a 90-minute, human-governed AI del
 
 ## Run locally
 
-Prerequisites: .NET 10 SDK (reads `HotelBooking.slnx`), .NET 8 SDK/runtime (the API targets .NET 8), and Node.js 20.19+ with npm. Node.js 22.12+ is also supported.
+Prerequisites: .NET 10 SDK (reads `HotelBooking.slnx`), .NET 8 SDK/runtime (the API targets .NET 8), and Node.js 20.19+ with npm. Node.js 22.12+ is also supported. 
 
 From the repository root, start the API:
 
