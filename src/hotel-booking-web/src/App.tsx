@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, dateAfter, errorMessage, formatDate, money, nights } from './api'
 import type { Booking, Room, Stay } from './api'
+import BookingDateEditor from './BookingDateEditor'
 
 export default function App() {
   const [draft, setDraft] = useState<Stay>(() => ({ checkIn: dateAfter(7), checkOut: dateAfter(9) }))
@@ -14,13 +15,16 @@ export default function App() {
   const [bookingError, setBookingError] = useState('')
   const [actionError, setActionError] = useState('')
   const [notice, setNotice] = useState('')
+  const [bookingNotice, setBookingNotice] = useState('')
   const [selected, setSelected] = useState<Room | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmCancel, setConfirmCancel] = useState<number | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [revision, setRevision] = useState(0)
   const guestNameRef = useRef<HTMLInputElement>(null)
   const errorRef = useRef<HTMLParagraphElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const bookingsTitleRef = useRef<HTMLHeadingElement>(null)
   const dirty = draft.checkIn !== stay.checkIn || draft.checkOut !== stay.checkOut
 
   useEffect(() => {
@@ -47,6 +51,13 @@ export default function App() {
 
   useEffect(() => { if (selected) guestNameRef.current?.focus() }, [selected])
   useEffect(() => { if (actionError) errorRef.current?.focus() }, [actionError])
+  useEffect(() => {
+    if (editingId !== null && !bookingsLoading && !bookingError && !bookings.some(booking => booking.id === editingId)) {
+      setEditingId(null)
+      setBookingNotice(`Booking #${editingId} is no longer in the list. Its dates were not changed here.`)
+      bookingsTitleRef.current?.focus()
+    }
+  }, [editingId, bookings, bookingsLoading, bookingError])
 
   function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -95,6 +106,7 @@ export default function App() {
     setBusy(true)
     setActionError('')
     setNotice('')
+    setBookingNotice('')
     try {
       await api<void>(`/bookings/${booking.id}`, { method: 'DELETE' })
       setNotice(`Booking #${booking.id} for ${booking.roomName} has been cancelled. The room is available to book again.`)
@@ -107,6 +119,20 @@ export default function App() {
     } finally {
       setBusy(false)
     }
+  }
+
+  function closeEditor(id: number) {
+    setEditingId(null)
+    document.getElementById(`edit-booking-${id}`)?.focus()
+  }
+
+  function bookingUpdated(booking: Booking, previewTotal: number) {
+    setEditingId(null)
+    setBookings(current => current.map(item => item.id === booking.id ? booking : item))
+    setBookingNotice(`Booking #${booking.id} updated: ${formatDate(booking.checkIn)} to ${formatDate(booking.checkOut)}. Total ${money(booking.totalPrice)}.${Math.round(booking.totalPrice * 100) !== Math.round(previewTotal * 100) ? ' The room rate changed since your preview.' : ''}`)
+    setSelected(null)
+    setRevision(value => value + 1)
+    bookingsTitleRef.current?.focus()
   }
 
   const availableCount = rooms.filter(room => room.isAvailable).length
@@ -181,16 +207,24 @@ export default function App() {
           </section>
 
           <section id="bookings" className="bookings-section" aria-labelledby="bookings-title" aria-busy={bookingsLoading}>
-            <div className="section-heading"><div><p className="eyebrow">ALL THE DETAILS, IN ONE PLACE</p><h2 id="bookings-title">Current bookings.</h2></div><button className="secondary" disabled={busy || bookingsLoading} onClick={() => setRevision(value => value + 1)}>Refresh bookings</button></div>
-            <p className="small muted">Shared workshop list. Cancel a booking to release its room.</p>
-            {bookingsLoading ? <p className="empty" role="status">Loading your bookings...</p>
-              : bookingError ? <div className="error" role="alert"><p>{bookingError}</p><button className="secondary" onClick={() => setRevision(value => value + 1)}>Retry bookings</button></div>
-              : bookings.length === 0 ? <p className="empty">No bookings yet. Find a room above and plan a little time away.</p>
-              : <ul className="booking-list">{bookings.map(booking => <li key={booking.id}>
+            <div className="section-heading"><div><p className="eyebrow">ALL THE DETAILS, IN ONE PLACE</p><h2 id="bookings-title" ref={bookingsTitleRef} tabIndex={-1}>Current bookings.</h2></div><button className="secondary" disabled={busy || bookingsLoading} onClick={() => setRevision(value => value + 1)}>Refresh bookings</button></div>
+            <p className="small muted">Shared workshop list. Edit dates or cancel a booking to release its room.</p>
+            <div aria-live="polite" aria-atomic="true">{bookingNotice && <p className="success">{bookingNotice}</p>}</div>
+            {bookingsLoading && <p className="empty" role="status">Loading your bookings...</p>}
+            {bookingError && <div className="error" role="alert"><p>{bookingError}</p><button className="secondary" onClick={() => setRevision(value => value + 1)}>Retry bookings</button></div>}
+            {!bookingsLoading && !bookingError && bookings.length === 0 && <p className="empty">No bookings yet. Find a room above and plan a little time away.</p>}
+            {bookings.length > 0 && <ul className="booking-list">{bookings.map(booking => <li key={booking.id}>
                 <div><span className="small muted">BOOKING #{booking.id}</span><h3>{booking.roomName}</h3><p>{booking.guestName} / {booking.guests} {booking.guests === 1 ? 'guest' : 'guests'}</p></div>
                 <div><p>{formatDate(booking.checkIn)} &ndash; {formatDate(booking.checkOut)}</p><p className="muted">{nights(booking)} {nights(booking) === 1 ? 'night' : 'nights'} / <strong>{money(booking.totalPrice)} total</strong></p></div>
                 {confirmCancel === booking.id ? <div className="cancel-confirm"><p>Cancel this booking?</p><button className="danger" disabled={busy} onClick={() => void cancel(booking)}>{busy ? 'Cancelling...' : 'Yes, cancel'}</button><button className="secondary" disabled={busy} onClick={() => setConfirmCancel(null)}>Keep stay</button></div>
-                  : <button className="secondary" disabled={busy} aria-label={`Cancel booking ${booking.id} for ${booking.roomName}`} onClick={() => setConfirmCancel(booking.id)}>Cancel booking</button>}
+                  : <div className="booking-actions">
+                    <button className="secondary" id={`edit-booking-${booking.id}`} disabled={busy || (editingId !== null && editingId !== booking.id)} aria-expanded={editingId === booking.id}
+                      aria-controls={editingId === booking.id ? `edit-form-${booking.id}` : undefined}
+                      aria-label={`Edit dates for booking ${booking.id} for ${booking.roomName}`}
+                      onClick={() => { if (editingId === booking.id) closeEditor(booking.id); else { setConfirmCancel(null); setEditingId(booking.id); setBookingNotice(''); setNotice('') } }}>Edit dates</button>
+                    <button className="secondary" disabled={busy || editingId !== null} aria-label={`Cancel booking ${booking.id} for ${booking.roomName}`} onClick={() => { setBookingNotice(''); setConfirmCancel(booking.id) }}>Cancel booking</button>
+                  </div>}
+                {editingId === booking.id && <BookingDateEditor booking={booking} busy={busy} onBusyChange={setBusy} onClose={() => closeEditor(booking.id)} onSaved={bookingUpdated} />}
               </li>)}</ul>}
           </section>
         </div>
