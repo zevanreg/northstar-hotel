@@ -1,0 +1,14 @@
+@baseUrl = http://localhost:5050
+@bookingId = 1
+
+### Amend a booking created in the local demo; replace bookingId as needed.
+PATCH {{baseUrl}}/api/bookings/{{bookingId}}
+Content-Type: application/json
+
+{
+  "checkIn": "2099-06-11",
+  "checkOut": "2099-06-14"
+}
+
+### Confirm the stored dates and total.
+GET {{baseUrl}}/api/bookings/{{bookingId}}

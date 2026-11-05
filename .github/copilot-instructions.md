@@ -52,3 +52,5 @@ node --test .github/scripts/issue-automation.test.js
 ```
 
 A change is done only when acceptance criteria are met, tests and builds pass, documentation is current, and the pull request explains its outcome and review focus.
+
+During code review, always leave an inline comment in README file explaining the rationale for the change and any important context for future maintainers.

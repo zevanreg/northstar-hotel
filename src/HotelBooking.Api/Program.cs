@@ -60,22 +60,48 @@ app.MapPost("/api/bookings", async (CreateBookingRequest request, HotelDbContext
     if (room is null) return Results.NotFound();
     if (request.Guests > room.Capacity)
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["guests"] = [$"This room accommodates up to {room.Capacity} guests."] });
-    if (await db.Bookings.AnyAsync(booking => booking.RoomId == room.Id &&
-        request.CheckIn < booking.CheckOut && request.CheckOut > booking.CheckIn, ct))
+    if (await OverlappingBookings(db, room.Id, request.CheckIn, request.CheckOut).AnyAsync(ct))
         return Results.Conflict(new { detail = "This room is no longer available for these dates. Search again to choose another room." });
 
     var booking = new Booking
     {
         RoomId = room.Id, GuestName = guestName, Email = email,
         Guests = request.Guests, CheckIn = request.CheckIn, CheckOut = request.CheckOut,
-        TotalPrice = room.NightlyRate * (request.CheckOut.DayNumber - request.CheckIn.DayNumber)
+        TotalPrice = StayPrice(room.NightlyRate, request.CheckIn, request.CheckOut)
     };
     db.Bookings.Add(booking);
     await db.SaveChangesAsync(ct);
     await transaction.CommitAsync(ct);
-    return Results.Created($"/api/bookings/{booking.Id}", new BookingResponse(booking.Id, room.Id, room.Name,
-        booking.GuestName, booking.Guests, booking.CheckIn, booking.CheckOut, booking.TotalPrice));
+    return Results.Created($"/api/bookings/{booking.Id}", ToBookingResponse(booking, room));
 });
+
+app.MapPatch("/api/bookings/{id:int}", async (int id, UpdateBookingDatesRequest request, HotelDbContext db, TimeProvider clock, CancellationToken ct) =>
+{
+    var errors = ValidateStay(request.CheckIn, request.CheckOut, clock);
+    if (errors.Count > 0) return Results.ValidationProblem(errors);
+
+    await using var transaction = await db.Database.BeginTransactionAsync(ct);
+    var booking = await db.Bookings.SingleOrDefaultAsync(existing => existing.Id == id, ct);
+    if (booking is null)
+        return Results.NotFound(new { detail = "This booking no longer exists. Refresh the bookings list." });
+    var room = await db.Rooms.SingleAsync(existing => existing.Id == booking.RoomId, ct);
+    if (await OverlappingBookings(db, room.Id, request.CheckIn, request.CheckOut)
+        .AnyAsync(existing => existing.Id != id, ct))
+        return Results.Conflict(new { detail = "These dates conflict with another booking for this room. Your existing booking has not changed. Choose different dates." });
+
+    booking.CheckIn = request.CheckIn;
+    booking.CheckOut = request.CheckOut;
+    booking.TotalPrice = StayPrice(room.NightlyRate, request.CheckIn, request.CheckOut);
+    await db.SaveChangesAsync(ct);
+    await transaction.CommitAsync(ct);
+    return Results.Ok(ToBookingResponse(booking, room));
+})
+    .WithName("UpdateBookingDates")
+    .WithSummary("Change the dates of an existing booking")
+    .Produces<BookingResponse>(StatusCodes.Status200OK)
+    .ProducesValidationProblem()
+    .Produces(StatusCodes.Status404NotFound)
+    .Produces(StatusCodes.Status409Conflict);
 
 app.MapDelete("/api/bookings/{id:int}", async (int id, HotelDbContext db, CancellationToken ct) =>
 {
@@ -97,6 +123,15 @@ static Dictionary<string, string[]> ValidateStay(DateOnly checkIn, DateOnly chec
         errors["checkOut"] = ["Check-out must be after check-in."];
     return errors;
 }
+
+static IQueryable<Booking> OverlappingBookings(HotelDbContext db, int roomId, DateOnly checkIn, DateOnly checkOut) =>
+    db.Bookings.Where(booking => booking.RoomId == roomId && checkIn < booking.CheckOut && checkOut > booking.CheckIn);
+
+static decimal StayPrice(decimal nightlyRate, DateOnly checkIn, DateOnly checkOut) =>
+    nightlyRate * (checkOut.DayNumber - checkIn.DayNumber);
+
+static BookingResponse ToBookingResponse(Booking booking, Room room) =>
+    new(booking.Id, room.Id, room.Name, booking.GuestName, booking.Guests, booking.CheckIn, booking.CheckOut, booking.TotalPrice);
 
 static IQueryable<BookingResponse> BookingQuery(HotelDbContext db, int? id = null) =>
     from booking in db.Bookings.AsNoTracking()

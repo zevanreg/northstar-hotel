@@ -1,10 +1,10 @@
 # Northstar Hotel
 
-A local-first boutique-hotel booking demo for a 90-minute, human-governed AI delivery workshop. Guests can search six rooms, book an available stay, review current bookings, and cancel a booking.
+A local-first boutique-hotel booking demo for a 90-minute, human-governed AI delivery workshop. Guests can search six rooms, book an available stay, change booking dates, review current bookings, and cancel a booking.
 
 ## Run locally
 
-Prerequisites: .NET 10 SDK (reads `HotelBooking.slnx`), .NET 8 SDK/runtime (the API targets .NET 8), and Node.js 20.19+ with npm. Node.js 22.12+ is also supported.
+Prerequisites: .NET 10 SDK (reads `HotelBooking.slnx`), .NET 8 SDK/runtime (the API targets .NET 8), and Node.js 20.19+ with npm. Node.js 22.12+ is also supported. 
 
 From the repository root, start the API:
 
@@ -20,9 +20,9 @@ npm ci
 npm run dev
 ```
 
-Open <http://localhost:5173>. Expect six room cards and an availability search prefilled for a two-night stay next week. Choose a room, enter **fictional** guest details, book, and cancel from Current bookings.
+Open <http://localhost:5173>. Expect six room cards and an availability search prefilled for a two-night stay next week. Choose a room, enter **fictional** guest details, and book. Under Current bookings, select **Edit dates**, review the new total, and save; then cancel the booking.
 
-If requests fail, check the API terminal and <http://localhost:5050/api/rooms>. Vite forwards `/api` to port 5050; restart the API on that port. If Vite reports a port conflict, stop your own existing server before retrying.
+If an amendment conflicts, the original stay remains unchanged; choose different dates and save again. If requests fail, check the API terminal and <http://localhost:5050/api/rooms>. Vite forwards `/api` to port 5050; restart the API on that port. If Vite reports a port conflict, stop your own existing server before retrying.
 
 ## Validate
 
@@ -44,10 +44,10 @@ Expected evidence: passing API and automation tests, clean lint, and generated w
 
 - Check-in is inclusive; check-out is exclusive. Adjacent stays are allowed.
 - Dates use the UTC calendar. Check-in must be today or later; check-out must follow check-in.
-- Availability is rechecked inside a SQLite write transaction when booking. Conflicting bookings return HTTP 409.
+- Availability is rechecked inside a SQLite write transaction when booking or changing dates. An amendment excludes its own booking; a conflict returns HTTP 409 and leaves the original stay unchanged.
 - Guest name, email, positive guest count, and room capacity are validated at the API boundary.
 - Prices are USD. The decimal nightly rate times the number of nights is stored as the booking total. No payment is collected.
-- Changing dates requires another search before a room can be chosen. Cancellation asks for confirmation and releases the room.
+- Changing search dates requires another search before a room can be chosen. Booking dates can be edited in Current bookings; the preview uses the current room rate and the saved total is confirmed by the API. Cancellation asks for confirmation and releases the room.
 - Startup adds any missing seeded rooms without deleting or overwriting bookings.
 
 ## Architecture and API
@@ -66,14 +66,16 @@ Expected evidence: passing API and automation tests, clean lint, and generated w
 | GET | `/api/bookings` | Shared current bookings, sorted by check-in |
 | GET | `/api/bookings/{id}` | Booking or 404 |
 | POST | `/api/bookings` | Create with `roomId`, `guestName`, `email`, `guests`, `checkIn`, `checkOut`; returns 201 |
+| PATCH | `/api/bookings/{id}` | Change `checkIn` and `checkOut`; returns the updated booking with its recalculated total |
 | DELETE | `/api/bookings/{id}` | Cancel with 204, or 404 if missing |
 
 Invalid business input returns a validation problem (400); booking conflicts return 409. Malformed JSON or date values return 400.
+For a manual amendment request, create a booking first and set its ID in [HotelBooking.Api.http](src/HotelBooking.Api/HotelBooking.Api.http).
 
 The default SQLite file is `northstar.db` in the API working directory. It is ignored by Git. Set `ConnectionStrings__Hotel` to use another SQLite connection string. There are no external services or secrets needed for local use.
 
 ## Workshop boundaries
 
-This is a shared, unauthenticated **local demo**, not a production reservation system. Everyone using the app can view guest names and cancel bookings. Emails are stored locally but not returned in booking responses. Use only fictional details; do not expose the API publicly.
+This is a shared, unauthenticated **local demo**, not a production reservation system. Everyone using the app can view guest names, change dates, and cancel bookings. Emails are stored locally but not returned in booking responses. Use only fictional details; do not expose the API publicly.
 
 Keep human approval, review, QA, and release gates in the existing workflows. A release remains a simulation, not deployment. Authentication, booking ownership, retention controls, payment handling, schema migrations, and public hosting are optional future production work, outside this baseline.
