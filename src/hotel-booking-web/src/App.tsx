@@ -180,7 +180,7 @@ export default function App() {
                 <div className="room-grid">
                   {rooms.map(room => (
                     <article className={`room-card${selected?.id === room.id ? ' selected' : ''}`} key={room.id}>
-                      <div className="room-topline"><span>UP TO {room.capacity} {room.capacity === 1 ? 'GUEST' : 'GUESTS'}</span><span className={room.isAvailable ? 'availability' : 'muted'}>{roomsLoading || dirty ? 'Search to confirm' : room.isAvailable ? 'Available' : 'Booked'}</span></div>
+                      <div className="room-topline"><span className="room-capacity"><span className="occupancy-badge">{room.capacity === 1 ? 'Solo' : room.capacity === 2 ? 'Couples' : 'Family'}</span><span>UP TO {room.capacity} {room.capacity === 1 ? 'GUEST' : 'GUESTS'}</span></span><span className={room.isAvailable ? 'availability' : 'muted'}>{roomsLoading || dirty ? 'Search to confirm' : room.isAvailable ? 'Available' : 'Booked'}</span></div>
                       <h3>{room.name}</h3>
                       <p className="room-description">{room.description}</p>
                       <div className="room-bottom"><p><strong>{money(room.nightlyRate)}</strong><span> / night</span></p><button className="secondary" disabled={!room.isAvailable || roomsLoading || dirty || busy} aria-pressed={selected?.id === room.id}
