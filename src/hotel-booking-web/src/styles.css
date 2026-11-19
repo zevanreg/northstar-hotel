@@ -37,7 +37,7 @@ p { line-height: 1.6; }
 .wordmark span { display: block; font-family: Arial, sans-serif; font-size: .58rem; letter-spacing: .22em; margin-top: 6px; }
 nav { display: flex; gap: 22px; font-size: .8rem; }
 nav a { display: flex; align-items: center; min-height: 44px; padding-block: 12px; }
-.hero { background: var(--green); color: #f7f5ef; padding: 48px 0 95px; }
+.hero { background: #163e58; color: #f7f5ef; padding: 48px 0 95px; }
 .eyebrow { font-size: .7rem; font-weight: 700; letter-spacing: .16em; margin-bottom: 15px; line-height: 1.5; }
 .hero .eyebrow { color: #d5ded2; }
 h1 { font-size: clamp(3.6rem, 8.5vw, 7rem); line-height: .98; letter-spacing: -.06em; }
