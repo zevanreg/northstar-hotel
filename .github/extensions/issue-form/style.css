@@ -1,0 +1,38 @@
+:root {
+  color-scheme: light dark;
+  --status-bar-color: var(--background-color-default, #fff);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--background-color-default, #fff);
+  color: var(--text-color-default, #1f2328);
+  font: var(--text-body-medium, 14px)/1.5 var(--font-sans, system-ui, sans-serif);
+}
+main { max-width: 760px; margin: auto; padding: 32px 24px 48px; }
+header { border-bottom: 1px solid var(--border-color-default, #d1d9e0); padding-bottom: 20px; }
+.eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .12em; color: var(--text-color-muted, #59636e); }
+h1 { font-size: var(--text-title-large, 26px); line-height: 1.2; margin: 12px 0; }
+h2 { font-size: 19px; }
+label { display: block; font-weight: var(--font-weight-semibold, 600); margin: 22px 0 7px; }
+input, select, textarea, button, a { font: inherit; }
+input, select, textarea {
+  width: 100%; padding: 10px 12px; border-radius: 6px;
+  border: 1px solid var(--border-color-default, #d1d9e0);
+  color: inherit; background: var(--background-color-default, #fff);
+}
+textarea { resize: vertical; }
+.hint { font-size: 12px; color: var(--text-color-muted, #59636e); margin: 6px 0; }
+#status { padding: 12px; border-left: 3px solid var(--true-color-blue, #0969da); overflow-wrap: anywhere; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; }
+button, #github {
+  display: inline-block; padding: 10px 16px; border-radius: 6px;
+  border: 1px solid var(--border-color-default, #d1d9e0);
+  color: inherit; background: var(--background-color-default, #fff); cursor: pointer;
+}
+.primary, #github { font-weight: 600; border-color: var(--true-color-blue, #0969da); }
+button:disabled { opacity: .6; cursor: wait; }
+:focus-visible { outline: 2px solid var(--color-focus-outline, #0969da); outline-offset: 3px; }
+#review { margin-top: 32px; border-top: 1px solid var(--border-color-default, #d1d9e0); }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 var(--font-mono, monospace); }
+@media (max-width: 420px) { main { padding: 20px 16px; } .actions > * { width: 100%; } }

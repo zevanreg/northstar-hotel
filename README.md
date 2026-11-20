@@ -40,6 +40,25 @@ npm run build
 
 Expected evidence: passing API and automation tests, clean lint, and generated web assets in `src/hotel-booking-web/dist`. API integration tests use isolated in-memory SQLite databases, never the local guest database.
 
+## Optional Copilot issue-form canvas
+
+In the Copilot app, ask to open the **Northstar issue form** canvas with a stable draft ID,
+for example `booking-dates`. Choose **Product requirement** or **Bug report**, complete
+the template fields, and choose **Save local draft** to preserve unfinished work.
+Drafts live in the current session's artifact directory, not in Git; reuse the same
+draft ID in that session to reopen one. Unsaved edits are not restored after a reload.
+
+Choose **Prepare GitHub review** to see the Markdown and a **Review on GitHub** link.
+The link uses this checkout's GitHub.com `origin` remote and prefills `status:new`.
+Review the content on GitHub and submit manually; the canvas never creates an issue,
+assigns an agent, or bypasses approval gates. Keep drafts short enough for a browser URL,
+and use only fictional details with secrets removed.
+
+The shared extension is in `.github/extensions/issue-form`. If the canvas is missing,
+ask Copilot to reload extensions and inspect `issue-form` for an error. After editing
+issue templates, keep the canvas fields aligned and run
+`node --test .github\extensions\issue-form\model.test.mjs`.
+
 ## Booking behavior
 
 - Check-in is inclusive; check-out is exclusive. Adjacent stays are allowed.
