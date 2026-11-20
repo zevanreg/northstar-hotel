@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Create an issue</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">NORTHSTAR HOTEL / ISSUE WORKSPACE</p>
+      <h1>A clear issue is a great start.</h1>
+      <p>Describe the outcome. Review the details. Submit on GitHub when you are ready.</p>
+      <p id="repository" class="repository"></p>
+    </header>
+    <p id="status" role="status" aria-live="polite">Loading your draft...</p>
+    <form id="issue-form" hidden>
+      <label for="type">Issue template</label>
+      <select id="type" name="type">
+        <option value="requirement">Product requirement</option>
+        <option value="bug">Bug report</option>
+      </select>
+      <label for="title">Title <span class="required">(required)</span></label>
+      <input id="title" name="title" maxlength="200" required placeholder="A short, specific summary">
+      <div id="fields"></div>
+      <p class="hint">Use fictional examples only. Remove personal data, tokens, and sensitive logs.</p>
+      <div class="actions">
+        <button id="save" type="button">Save draft</button>
+        <button id="review" type="submit" class="primary">Review issue</button>
+      </div>
+      <p class="hint">Drafts stay in this Copilot session. Nothing is posted from this form.</p>
+    </form>
+    <section id="preview" hidden aria-labelledby="preview-title">
+      <p class="eyebrow">READY FOR YOUR REVIEW</p>
+      <h2 id="preview-title"></h2>
+      <pre id="preview-body"></pre>
+      <p class="hint">GitHub will open a new issue with <code>status:new</code>. Review it there, then choose <strong>Create</strong>.</p>
+      <a id="github" class="button primary" target="_blank" rel="noopener noreferrer">Continue on GitHub</a>
+    </section>
+  </main>
+</body>
+</html>

@@ -76,6 +76,18 @@ The default SQLite file is `northstar.db` in the API working directory. It is ig
 
 ## Workshop boundaries
 
+### Optional issue-creation canvas
+
+In the Copilot app, ask **Open the issue-creation form** to draft a product requirement or bug report using the shared extension in `.github/extensions/issue-creation-form`. If opening it directly, use canvas ID `issue-creation-form` and input `{ "draftId": "new-issue" }`; use a different draft ID for a separate issue.
+
+Choose a template, fill in the fields, then select **Save draft** or **Review issue**. Review shows the complete issue text and a **Continue on GitHub** link. The link opens a prefilled issue with `status:new`; nothing is posted until you submit it on GitHub. GitHub sign-in and repository access are required only for that final step. Automated triage still assigns the other lifecycle labels.
+
+Drafts live in the current session's artifact storage, not in Git, and survive extension reloads. Save before closing; changing templates clears the template-specific fields. If another panel changed the same draft, reopen the canvas before saving again. If the canvas is unavailable, reload extensions and reopen it. The extension requires an HTTPS or SSH `origin` remote pointing to the GitHub repository.
+
+Run its focused checks from the repository root with `node --test .github\extensions\issue-creation-form\*.test.mjs`.
+
+### Demo boundaries
+
 This is a shared, unauthenticated **local demo**, not a production reservation system. Everyone using the app can view guest names, change dates, and cancel bookings. Emails are stored locally but not returned in booking responses. Use only fictional details; do not expose the API publicly.
 
 Keep human approval, review, QA, and release gates in the existing workflows. A release remains a simulation, not deployment. Authentication, booking ownership, retention controls, payment handling, schema migrations, and public hosting are optional future production work, outside this baseline.
