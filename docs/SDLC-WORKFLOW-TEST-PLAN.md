@@ -56,15 +56,16 @@ GitHub Actions only registers new `workflow_dispatch`, `issue_comment` (slash co
 
 ### Actions
 
-Replace `<owner>/<repo>` with your repository slug:
+Replace `<owner>/<repo>` with your repository slug and `<ISSUE_NUMBER>` with an existing issue number (`gh aw trial` synthesizes a required `issue_number` input for `issues`-triggered workflows, populated via `--trigger-context`):
 
 ```powershell
 # Preview without creating any repository
 gh aw trial .github/workflows/qa-advisory.md --dry-run
 
 # Run isolated trials that capture safe-outputs without mutating the target repository
-gh aw trial .github/workflows/issue-triage-agentic.md --logical-repo <owner>/<repo> --delete-host-repo-after
+gh aw trial .github/workflows/issue-triage-agentic.md --logical-repo <owner>/<repo> --trigger-context https://github.com/<owner>/<repo>/issues/<ISSUE_NUMBER> --delete-host-repo-after
 gh aw trial .github/workflows/qa-advisory.md --logical-repo <owner>/<repo> --delete-host-repo-after
+gh aw trial .github/workflows/daily-router-agentic.md --logical-repo <owner>/<repo> --delete-host-repo-after
 ```
 
 ### Expected evidence
