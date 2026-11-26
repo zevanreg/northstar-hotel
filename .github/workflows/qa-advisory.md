@@ -1,4 +1,5 @@
 ---
+name: AW 05 - Advisory QA and acceptance verification
 on:
   workflow_dispatch:
     inputs:
@@ -11,11 +12,21 @@ on:
         required: false
         type: number
 
+engine: copilot
+
+concurrency:
+  job-discriminator: "${{ inputs.pr_number || github.run_id }}"
+
 permissions:
+  actions: read
+  checks: read
   contents: read
   issues: read
   pull-requests: read
-  checks: read
+
+tools:
+  github:
+    toolsets: [repos, issues, pull_requests, actions]
 
 safe-outputs:
   create-issue: false
@@ -26,7 +37,7 @@ safe-outputs:
 
 # Advisory QA and Acceptance Verification (Optional `gh-aw` Workflow)
 
-> **Setup note:** This is an optional GitHub Agentic Workflow (`gh-aw`) source file. Compile it with `gh aw compile` to generate `.github/workflows/qa-advisory.lock.yml`, and verify behavior in a real fork before enabling it for workshop attendees.
+> **Setup note:** Compiled with `gh aw compile` into `.github/workflows/qa-advisory.lock.yml`. Verify behavior in a real fork before enabling it for workshop attendees.
 
 You are performing a **read-only advisory QA audit** for Northstar Hotel pull request `#${{ inputs.pr_number }}` (optional issue `#${{ inputs.issue_number }}`).
 

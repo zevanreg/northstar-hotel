@@ -80,4 +80,13 @@ This is a shared, unauthenticated **local demo**, not a production reservation s
 
 Keep human approval, review, QA, and release gates in the existing workflows. A release remains a simulation, not deployment. Editing an approved issue resets `ready-for-building`, pushing new commits to a pull request resets `ready-for-qa`, QA promotion requires a clean Copilot review and green `validate` check on the current PR head commit, and release simulation verifies a merged closing PR on an immutable `main` commit.
 
-An optional read-only GitHub Agentic Workflow source file is included at [qa-advisory.md](.github/workflows/qa-advisory.md) for manual advisory QA audits; compile it with `gh aw compile` and test in a fork before enabling it for workshop attendees. Authentication, booking ownership, retention controls, payment handling, schema migrations, and public hosting are optional future production work, outside this baseline.
+Companion GitHub Agentic Workflows (`gh-aw`, compiled into `*.lock.yml` with `gh aw compile` and centralized slash-command routing in [agentic_commands.yml](.github/workflows/agentic_commands.yml)) sit alongside the deterministic workflows without bypassing human gates:
+
+- [issue-triage-agentic.md](.github/workflows/issue-triage-agentic.md) (`/triage` or `workflow_dispatch`) — codebase-aware semantic triage, duplicate check, and acceptance-criteria review.
+- [daily-router-agentic.md](.github/workflows/daily-router-agentic.md) (`workflow_dispatch`) — PR/file-overlap conflict-aware lane routing.
+- [ci-failure-investigator.md](.github/workflows/ci-failure-investigator.md) (`Build and test` failure on `main`/`copilot/**`, `/diagnose-ci`, or `workflow_dispatch`) — read-only CI log diagnosis on pull requests.
+- [qa-advisory.md](.github/workflows/qa-advisory.md) (`workflow_dispatch`) — read-only acceptance criteria and booking invariant audit.
+- [docs-drift-guard.md](.github/workflows/docs-drift-guard.md) (`workflow_dispatch`) — checks `README.md` and `.github/instructions/*` for drift and optionally opens one draft `[docs]` PR.
+- [release-readiness-audit.md](.github/workflows/release-readiness-audit.md) (`/verify-release` or `workflow_dispatch`) — read-only Go/No-Go release readiness report before a human applies `release-to-production`.
+
+Verify `gh-aw` behavior in a real fork before enabling these companion workflows for workshop attendees. Authentication, booking ownership, retention controls, payment handling, schema migrations, and public hosting are optional future production work, outside this baseline.

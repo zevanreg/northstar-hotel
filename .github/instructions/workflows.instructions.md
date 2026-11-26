@@ -14,5 +14,5 @@ applyTo: ".github/workflows/**/*.yml,.github/scripts/**/*.js,.github/labels.json
 - Route labels recommend the execution environment; VS Code and Copilot CLI are local tools and cannot be GitHub assignees.
 - Exclude active `develop-with-ai` or Copilot-assigned work from daily routing so lanes do not starve.
 - A release remains a simulation that runs API tests, automation tests, web lint, and web build, and uploads an artifact. Do not add a cloud deployment.
-- Keep optional GitHub Agentic Workflows (such as `.github/workflows/qa-advisory.md`) strictly read-only and advisory; compile with `gh aw compile` and verify behavior in a fork before enabling for workshop attendees.
+- Keep GitHub Agentic Workflows (`.github/workflows/*.md` compiled via `gh aw compile` into `*.lock.yml` plus centralized `agentic_commands.yml`) scoped with read-only agent permissions and explicit `safe-outputs` guardrails (`blocked` lists protecting human gates, `create-issue: false`, and zero unauthorized gate transitions); recompile whenever a `.md` workflow changes and verify behavior in a fork before enabling for workshop attendees.
 - Add pure-function tests when classification, ranking, routing, QA eligibility, release gating, or project-status logic changes.
