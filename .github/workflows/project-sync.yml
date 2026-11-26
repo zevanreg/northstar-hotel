@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: project-sync-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
 jobs:
   sync:
     if: ${{ vars.PROJECT_OWNER != '' && vars.PROJECT_NUMBER != '' }}

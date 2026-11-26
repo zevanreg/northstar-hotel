@@ -3,14 +3,25 @@ name: 06 - Simulate production release
 on:
   issues:
     types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number approved for simulated production release
+        required: true
+        type: number
 
 permissions:
   contents: read
   issues: write
+  pull-requests: read
+
+concurrency:
+  group: issue-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
 
 jobs:
   validate-and-release:
-    if: ${{ github.event.label.name == 'release-to-production' && contains(github.event.issue.labels.*.name, 'ready-for-qa') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.label.name == 'release-to-production' && !github.event.issue.pull_request) }}
     runs-on: ubuntu-latest
     env:
       PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
@@ -20,48 +31,244 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Enforce QA and merged-PR release gates
+        id: gate
+        uses: actions/github-script@v7
+        env:
+          INPUT_ISSUE_NUMBER: ${{ inputs.issue_number }}
+        with:
+          script: |
+            const automation = require('./.github/scripts/issue-automation.js')
+            const { owner, repo } = context.repo
+            const issueNumber = context.eventName === 'workflow_dispatch'
+              ? Number(process.env.INPUT_ISSUE_NUMBER)
+              : context.payload.issue.number
+
+            if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
+              core.setFailed('Provide a valid positive issue_number input.')
+              return
+            }
+
+            core.setOutput('issue_number', String(issueNumber))
+
+            const { data: liveIssue } = await github.rest.issues.get({
+              owner,
+              repo,
+              issue_number: issueNumber
+            })
+            const liveLabels = automation.normalizeLabelNames(liveIssue.labels)
+            const gate = automation.evaluateReleaseGate(liveLabels)
+
+            if (!gate.approved) {
+              if (liveLabels.includes('release-to-production') && !liveLabels.includes('ready-for-qa')) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner,
+                    repo,
+                    issue_number: issueNumber,
+                    name: 'release-to-production'
+                  })
+                } catch (error) {
+                  if (error.status !== 404) throw error
+                }
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                  body: 'Release simulation was not started. An issue must have `ready-for-qa` before `release-to-production` is applied.'
+                })
+                core.setOutput('rejected', 'true')
+              } else {
+                core.notice(gate.reason)
+                core.setOutput('rejected', 'false')
+              }
+              core.setOutput('approved', 'false')
+              return
+            }
+
+            const query = `query($owner: String!, $repo: String!, $number: Int!) {
+              repository(owner: $owner, name: $repo) {
+                issue(number: $number) {
+                  closedByPullRequestsReferences(first: 20, includeClosedPrs: true) {
+                    nodes {
+                      number
+                      merged
+                      baseRefName
+                      url
+                      mergeCommit { oid }
+                      repository { nameWithOwner }
+                    }
+                  }
+                  timelineItems(itemTypes: [CLOSED_EVENT], last: 20) {
+                    nodes {
+                      ... on ClosedEvent {
+                        closer {
+                          ... on PullRequest {
+                            number
+                            merged
+                            baseRefName
+                            url
+                            mergeCommit { oid }
+                            repository { nameWithOwner }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }`
+
+            const data = await github.graphql(query, { owner, repo, number: issueNumber })
+            const issueData = data.repository?.issue
+            const mergedPrs = automation.findMergedClosingPrs({
+              closedByPrs: issueData?.closedByPullRequestsReferences?.nodes || [],
+              closedEvents: issueData?.timelineItems?.nodes || [],
+              owner,
+              repo,
+              baseBranch: 'main'
+            })
+
+            if (mergedPrs.length === 0) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                  name: 'release-to-production'
+                })
+              } catch (error) {
+                if (error.status !== 404) throw error
+              }
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body: 'Release simulation was not started. Merge a linked pull request (`Closes #' + issueNumber + '`) into `main` before applying `release-to-production`.'
+              })
+              core.setOutput('approved', 'false')
+              core.setOutput('rejected', 'true')
+              return
+            }
+
+            const { data: mainRef } = await github.rest.git.getRef({
+              owner,
+              repo,
+              ref: 'heads/main'
+            })
+            const mergedPr = mergedPrs[mergedPrs.length - 1]
+
+            core.setOutput('approved', 'true')
+            core.setOutput('rejected', 'false')
+            core.setOutput('target_sha', mainRef.object.sha)
+            core.setOutput('merged_pr_number', String(mergedPr.number))
+            core.setOutput('merge_commit_sha', mergedPr.mergeCommitSha)
+      - name: Synchronize rejected release to the Project
+        if: ${{ steps.gate.outputs.rejected == 'true' && env.PROJECT_TOKEN != '' && env.PROJECT_OWNER != '' && env.PROJECT_NUMBER != '' }}
+        uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.gate.outputs.issue_number }}
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const project = require('./.github/scripts/project-sync.js')
+            const { data: issue } = await github.rest.issues.get({
+              ...context.repo,
+              issue_number: Number(process.env.ISSUE_NUMBER)
+            })
+            await project.syncProject({
+              github,
+              context,
+              core,
+              ownerType: process.env.PROJECT_OWNER_TYPE || 'organization',
+              projectOwner: process.env.PROJECT_OWNER,
+              projectNumber: process.env.PROJECT_NUMBER,
+              issue
+            })
+      - name: Check out immutable main commit
+        if: ${{ steps.gate.outputs.approved == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.gate.outputs.target_sha }}
+          fetch-depth: 0
+      - name: Verify merged PR is contained in tested commit
+        if: ${{ steps.gate.outputs.approved == 'true' }}
+        env:
+          TARGET_SHA: ${{ steps.gate.outputs.target_sha }}
+          MERGE_COMMIT_SHA: ${{ steps.gate.outputs.merge_commit_sha }}
+        shell: bash
+        run: |
+          actual_sha="$(git rev-parse HEAD)"
+          if [ "$actual_sha" != "$TARGET_SHA" ]; then
+            echo "::error::Checked-out commit $actual_sha does not match resolved main SHA $TARGET_SHA."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$MERGE_COMMIT_SHA" "$actual_sha"; then
+            echo "::error::Merged PR commit $MERGE_COMMIT_SHA is not an ancestor of $actual_sha."
+            exit 1
+          fi
       - uses: actions/setup-dotnet@v4
+        if: ${{ steps.gate.outputs.approved == 'true' }}
         with:
           dotnet-version: |
             8.0.x
             10.0.x
       - uses: actions/setup-node@v4
+        if: ${{ steps.gate.outputs.approved == 'true' }}
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: src/hotel-booking-web/package-lock.json
-      - name: Run release tests
+      - name: Run API release tests
+        if: ${{ steps.gate.outputs.approved == 'true' }}
         run: dotnet test HotelBooking.slnx --configuration Release
-      - name: Build release web assets
+      - name: Run issue automation tests
+        if: ${{ steps.gate.outputs.approved == 'true' }}
+        run: node --test .github/scripts/issue-automation.test.js
+      - name: Lint and build release web assets
+        if: ${{ steps.gate.outputs.approved == 'true' }}
         working-directory: src/hotel-booking-web
         run: |
           npm ci
+          npm run lint
           npm run build
       - name: Create simulated release manifest
+        if: ${{ steps.gate.outputs.approved == 'true' }}
+        id: manifest
         env:
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_NUMBER: ${{ steps.gate.outputs.issue_number }}
+          MERGED_PR: ${{ steps.gate.outputs.merged_pr_number }}
+          MERGE_COMMIT: ${{ steps.gate.outputs.merge_commit_sha }}
         shell: bash
         run: |
+          tested_sha="$(git rev-parse HEAD)"
+          echo "tested_sha=$tested_sha" >> "$GITHUB_OUTPUT"
           mkdir -p release
           jq -n \
             --arg repository "$GITHUB_REPOSITORY" \
-            --arg commit "$GITHUB_SHA" \
+            --arg commit "$tested_sha" \
             --arg issue "$ISSUE_NUMBER" \
+            --arg mergedPr "$MERGED_PR" \
+            --arg mergeCommit "$MERGE_COMMIT" \
             --arg run "$GITHUB_RUN_ID" \
             --arg releasedAt "$(date -u +%FT%TZ)" \
-            '{repository:$repository, commit:$commit, issue:$issue, run:$run, releasedAt:$releasedAt, environment:"simulation"}' \
+            '{repository:$repository, commit:$commit, issue:$issue, mergedPr:$mergedPr, mergeCommit:$mergeCommit, run:$run, releasedAt:$releasedAt, environment:"simulation"}' \
             > release/manifest.json
           cp -R src/hotel-booking-web/dist release/web
       - uses: actions/upload-artifact@v4
+        if: ${{ steps.gate.outputs.approved == 'true' }}
         with:
           name: simulated-production-release
           path: release
           retention-days: 7
       - name: Complete the work item
+        if: ${{ steps.gate.outputs.approved == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_NUMBER: ${{ steps.gate.outputs.issue_number }}
+          MERGED_PR: ${{ steps.gate.outputs.merged_pr_number }}
+          TESTED_SHA: ${{ steps.manifest.outputs.tested_sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
         run: |
@@ -69,17 +276,19 @@ jobs:
             --description "The simulated release workflow completed" --force
           gh issue edit "$ISSUE_NUMBER" --add-label "released"
           gh issue comment "$ISSUE_NUMBER" --body \
-            "Release simulation passed all tests and produced an artifact: $RUN_URL"
+            "Release simulation passed API tests, automation tests, web lint, and web build on commit \`${TESTED_SHA:0:7}\` (including merged PR #$MERGED_PR) and produced an artifact: $RUN_URL"
       - name: Synchronize released status to the Project
-        if: ${{ env.PROJECT_TOKEN != '' && env.PROJECT_OWNER != '' && env.PROJECT_NUMBER != '' }}
+        if: ${{ steps.gate.outputs.approved == 'true' && env.PROJECT_TOKEN != '' && env.PROJECT_OWNER != '' && env.PROJECT_NUMBER != '' }}
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.gate.outputs.issue_number }}
         with:
           github-token: ${{ secrets.PROJECT_TOKEN }}
           script: |
             const project = require('./.github/scripts/project-sync.js')
             const { data: issue } = await github.rest.issues.get({
               ...context.repo,
-              issue_number: context.payload.issue.number
+              issue_number: Number(process.env.ISSUE_NUMBER)
             })
             await project.syncProject({
               github,

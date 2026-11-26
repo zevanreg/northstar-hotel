@@ -78,4 +78,6 @@ The default SQLite file is `northstar.db` in the API working directory. It is ig
 
 This is a shared, unauthenticated **local demo**, not a production reservation system. Everyone using the app can view guest names, change dates, and cancel bookings. Emails are stored locally but not returned in booking responses. Use only fictional details; do not expose the API publicly.
 
-Keep human approval, review, QA, and release gates in the existing workflows. A release remains a simulation, not deployment. Authentication, booking ownership, retention controls, payment handling, schema migrations, and public hosting are optional future production work, outside this baseline.
+Keep human approval, review, QA, and release gates in the existing workflows. A release remains a simulation, not deployment. Editing an approved issue resets `ready-for-building`, pushing new commits to a pull request resets `ready-for-qa`, QA promotion requires a clean Copilot review and green `validate` check on the current PR head commit, and release simulation verifies a merged closing PR on an immutable `main` commit.
+
+An optional read-only GitHub Agentic Workflow source file is included at [qa-advisory.md](.github/workflows/qa-advisory.md) for manual advisory QA audits; compile it with `gh aw compile` and test in a fork before enabling it for workshop attendees. Authentication, booking ownership, retention controls, payment handling, schema migrations, and public hosting are optional future production work, outside this baseline.

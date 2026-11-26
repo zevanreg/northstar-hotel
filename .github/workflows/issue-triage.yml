@@ -8,6 +8,10 @@ permissions:
   contents: read
   issues: write
 
+concurrency:
+  group: issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
 jobs:
   triage:
     if: ${{ !github.event.issue.pull_request }}

@@ -9,6 +9,10 @@ permissions:
   contents: read
   issues: write
 
+concurrency:
+  group: daily-issue-router
+  cancel-in-progress: false
+
 jobs:
   route:
     runs-on: ubuntu-latest
