@@ -1,11 +1,11 @@
 # SDLC Workflow Test Plan
 
-Verify that Northstar Hotel's hardened deterministic GitHub Actions workflows (`00`–`06`) and optional companion GitHub Agentic Workflows (`AW 01`–`AW 07`) enforce every human gate, commit-SHA check, and read-only boundary end to end.
+Verify Northstar Hotel's single-owner SDLC pipeline—combining GitHub Agentic Workflows (`gh-aw`) for reasoning-heavy stages (`01`, `02`, `AW 04`–`AW 07`) with deterministic GitHub Actions workflows for mechanical gates and builds (`00`, `03`, `Build and test`, `04`, `05`, `06`, Project v2 sync).
 
 ## Mandatory vs. optional scope
 
-- **Mandatory workshop baseline:** Stages 1, 3, and the deterministic checks in Stage 4 (`00`–`06` and `Build and test`).
-- **Optional companion agentic workflows (`gh-aw`):** Stage 2 (`gh aw trial`), the `AW *` steps in Stage 4, and Stage 5 (fork compatibility check).
+- **Core SDLC pipeline:** Stages 1, 3, and 4 (triage `01`, daily routing `02`, Copilot delegation `03`, CI, review `04`, QA promotion `05`, simulated release `06`).
+- **Pre-merge trials & optional audits:** Stage 2 (`gh aw trial`), advisory workflows (`AW 04`–`AW 07`), and Stage 5 (fork compatibility trial).
 
 ---
 
@@ -90,8 +90,8 @@ gh aw trial .github/workflows/qa-advisory.md --logical-repo <owner>/<repo> --del
 
 | Name | Type | Used by | Purpose |
 |---|---|---|---|
+| `COPILOT_GITHUB_TOKEN` | Secret | `01`, `02`, `AW 04`–`AW 07` (`*.lock.yml`) | Runs the Copilot engine in `gh-aw` (unless org token-based billing is enabled) |
 | `COPILOT_AGENT_TOKEN` | Secret | `03 - Delegate approved issue to Copilot` | Assigns `copilot-swe-agent[bot]` |
-| `COPILOT_GITHUB_TOKEN` | Secret | `AW 01`–`AW 07` (`*.lock.yml`) *(optional)* | Runs the Copilot engine in `gh-aw` (unless org token-based billing is enabled) |
 | `PROJECT_TOKEN` | Secret | `Sync issue to GitHub Project` and post-step syncs *(optional)* | Updates GitHub Projects v2 status |
 | `PROJECT_OWNER`, `PROJECT_OWNER_TYPE`, `PROJECT_NUMBER` | Variables | Project sync *(optional)* | Identifies the target Project v2 board |
 | `HUMAN_MAINTAINER` | Variable | `02 - Route top ready issues` *(optional)* | GitHub username assigned to local/human lanes |
@@ -110,29 +110,29 @@ gh aw trial .github/workflows/qa-advisory.md --logical-repo <owner>/<repo> --del
 
 ## Stage 4: Live end-to-end SDLC test plan
 
-**Outcome:** Prove every deterministic human gate, stale-approval reset, SHA-bound QA/release check, and companion agentic workflow works on GitHub.
+**Outcome:** Prove every agentic reasoning stage, human gate, stale-approval reset, and SHA-bound QA/release check works on GitHub without duplicated workflows.
 
 Create one disposable test issue (for example, a small UI copy note with 2 clear acceptance criteria) and run through sections A–D in order.
 
-### A. Triage, concurrency, and stale-approval revocation
+### A. Semantic triage, slash commands, and stale-approval revocation
 
 | Step | Action | Expected evidence |
 |---|---|---|
-| A1 | Open the test issue. | `01 - Triage issue` applies `area:*`, `kind:*`, `priority:*`, `complexity:*`, and `status:triaged`, removes `status:new`, and posts an `Automated triage` comment with a `Requirement revision` hash. |
-| A2 *(optional)* | Comment `/triage` on the issue (or run `gh aw run issue-triage-agentic --raw-field issue_number=<ISSUE>`). | `Agentic Commands` adds an `👀` reaction and dispatches `AW 01 - Semantic issue triage`. One replaceable comment is posted with codebase touchpoints, duplicate check, and clarifying questions. No human gate labels are touched. |
-| A3 *(optional)* | Comment `/help` on the issue. | `Agentic Commands` replies with the list of registered slash commands (`/diagnose-ci`, `/triage`, `/verify-release`). |
-| A4 | Add `ready-for-building`, then edit the issue body. | `01 - Triage issue` automatically removes `ready-for-building`, updates the `Requirement revision` hash, and appends the **Approval reset** notice. Re-apply `ready-for-building` to continue. |
+| A1 | Open the test issue. | `01 - Semantic issue triage` (`issue-triage-agentic.lock.yml`) applies `area:*`, `kind:*`, `priority:*`, `complexity:*`, and `status:triaged`, removes `status:new`, posts one replaceable codebase-grounded triage comment, and runs `sync-project` if configured. No human gate labels are touched. |
+| A2 | Comment `/triage` on the issue (or run `gh aw run issue-triage-agentic --raw-field issue_number=<ISSUE>`). | `Agentic Commands` adds an `👀` reaction and dispatches `01 - Semantic issue triage`, updating the existing triage comment in place. |
+| A3 | Comment `/help` on the issue. | `Agentic Commands` replies with the list of registered slash commands (`/diagnose-ci`, `/triage`, `/verify-release`). |
+| A4 | Add `ready-for-building`, then edit the issue body. | The deterministic `reset-stale-approval` job in `01 - Semantic issue triage` removes `ready-for-building`, posts an **Approval reset** comment with the new revision hash, and syncs Project status. Re-apply `ready-for-building` to continue. |
 
 **Recovery:** If `/triage` does not fire, confirm `.github/workflows/agentic_commands.yml` is on `main` and check the **Actions → `Agentic Commands`** log.
 
-### B. Routing and Copilot delegation gate
+### B. Conflict-aware routing and Copilot delegation gate
 
 | Step | Action | Expected evidence |
 |---|---|---|
-| B1 *(optional)* | Run **Actions → `AW 02 - Conflict-aware daily issue router`** with `apply_labels: true` (or `gh aw run daily-router-agentic --raw-field apply_labels=true`). | Recommends an `agent:*` lane with conflict checks against open PRs; never adds or removes human gate labels. |
+| B1 | Run **Actions → `02 - Route top ready issues`** (`daily-router-agentic.lock.yml`) with `apply_labels: true` (or `gh aw run daily-router-agentic --raw-field apply_labels=true`). | `pre_activation` (`skip-if-no-match`) finds the eligible issue, recommends an `agent:*` lane with conflict checks against open PRs, and never adds or removes human gate labels. |
 | B2 | On a second issue **without** `ready-for-building`, add `develop-with-ai`. | `03 - Delegate approved issue to Copilot` removes `develop-with-ai` and comments that `ready-for-building` is required first. |
 | B3 | On the approved test issue (which has `ready-for-building`), add `develop-with-ai`. | `03 - Delegate approved issue to Copilot` re-reads live labels, assigns `copilot-swe-agent[bot]` with the matched custom agent, and posts confirmation. |
-| B4 | Run **Actions → `02 - Route top ready issues` → Run workflow**. | The active `develop-with-ai` / Copilot-assigned test issue is **excluded** from routing so the lane does not starve other ready issues. |
+| B4 | Run `02 - Route top ready issues` again with no other ready issues open. | `skip-if-no-match` skips the agent job cleanly (zero LLM run) because the active `develop-with-ai` issue is excluded from the query. |
 
 **Recovery:** If delegation comments that `COPILOT_AGENT_TOKEN` is missing, add the secret in Repository Settings, remove and re-add `develop-with-ai`, and re-check the run log.
 

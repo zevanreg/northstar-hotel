@@ -2,67 +2,16 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const {
   buildCopilotAssignment,
-  classifyIssue,
   chooseCustomAgent,
-  chooseRoute,
   computeRequirementFingerprint,
   evaluateQaPromotion,
   evaluateReleaseGate,
   filterLocalClosingIssues,
   findMergedClosingPrs,
   hasMaterialRequirementEdit,
-  isRoutableIssue,
-  isTriageOwnedLabel,
-  planLabelChanges,
-  rankIssue
+  planLabelChanges
 } = require('./issue-automation')
 const { desiredStatus } = require('./project-sync')
-
-test('classifies cross-stack database requirements as high complexity', () => {
-  const result = classifyIssue(
-    'Add a guest booking amendment screen',
-    `Update the React page and the .NET API. Persist changes to the database.
-
-- [ ] Guest can change dates
-- [ ] API rejects conflicts
-- [ ] Database is updated
-- [ ] UI displays validation`
-  )
-
-  assert.equal(result.area, 'area:full-stack')
-  assert.equal(result.complexity, 'complexity:high')
-})
-
-test('routes a low complexity frontend feature to Copilot on GitHub', () => {
-  const route = chooseRoute([
-    'area:frontend',
-    'kind:feature',
-    'complexity:low',
-    'priority:p3'
-  ])
-
-  assert.equal(route.label, 'agent:copilot-app')
-})
-
-test('routes scripts to Copilot CLI', () => {
-  const route = chooseRoute([
-    'area:automation',
-    'kind:script',
-    'complexity:medium'
-  ])
-
-  assert.equal(route.label, 'agent:copilot-cli')
-})
-
-test('does not classify description text as a script', () => {
-  const result = classifyIssue(
-    '[Requirement] Add hotel highlights to the home page',
-    'The page needs a hotel description, customer reviews, awards, highlights, and more visual detail.'
-  )
-
-  assert.equal(result.area, 'area:frontend')
-  assert.equal(result.kind, 'kind:feature')
-})
 
 test('selects custom agents from classified work areas', () => {
   assert.equal(chooseCustomAgent(['area:frontend']), 'frontend')
@@ -70,28 +19,6 @@ test('selects custom agents from classified work areas', () => {
   assert.equal(chooseCustomAgent(['area:documentation']), 'documentation')
   assert.equal(chooseCustomAgent(['kind:docs']), 'documentation')
   assert.equal(chooseCustomAgent(['area:backend', 'kind:logging']), 'clean-code')
-})
-
-test('routes documentation work to the cloud documentation agent', () => {
-  const route = chooseRoute([
-    'area:documentation',
-    'kind:docs',
-    'complexity:low'
-  ])
-
-  assert.equal(route.label, 'agent:cloud')
-  assert.equal(route.customAgent, 'documentation')
-})
-
-test('routes bounded backend work to the cloud clean-code agent', () => {
-  const route = chooseRoute([
-    'area:backend',
-    'kind:logging',
-    'complexity:low'
-  ])
-
-  assert.equal(route.label, 'agent:cloud')
-  assert.equal(route.customAgent, 'clean-code')
 })
 
 test('builds a valid Copilot assignment with a custom agent', () => {
@@ -115,14 +42,6 @@ test('omits an empty custom agent from the Copilot assignment', () => {
   assert.equal(payload.agent_assignment.custom_agent, undefined)
 })
 
-test('ranks urgent issues above normal issues', () => {
-  const now = new Date().toISOString()
-  const p1 = { labels: [{ name: 'priority:p1' }, { name: 'complexity:low' }], created_at: now }
-  const p3 = { labels: [{ name: 'priority:p3' }, { name: 'complexity:high' }], created_at: now }
-
-  assert.ok(rankIssue(p1) > rankIssue(p3))
-})
-
 test('keeps release-approved work in QA until release succeeds', () => {
   assert.equal(
     desiredStatus(['ready-for-qa', 'release-to-production']),
@@ -134,15 +53,15 @@ test('keeps release-approved work in QA until release succeeds', () => {
   )
 })
 
-test('plans owned triage label changes without touching human gate labels', () => {
+test('plans owned QA label changes without touching unrelated labels', () => {
   const plan = planLabelChanges(
-    ['status:new', 'area:backend', 'complexity:low', 'ready-for-building', 'custom:keep'],
-    ['area:frontend', 'kind:feature', 'priority:p3', 'complexity:medium', 'status:triaged'],
-    isTriageOwnedLabel
+    ['status:triaged', 'ready-for-building', 'develop-with-ai', 'custom:keep'],
+    ['ready-for-qa'],
+    (name) => name === 'ready-for-qa' || name === 'develop-with-ai'
   )
 
-  assert.deepEqual(plan.toAdd, ['area:frontend', 'kind:feature', 'priority:p3', 'complexity:medium', 'status:triaged'])
-  assert.deepEqual(plan.toRemove, ['status:new', 'area:backend', 'complexity:low'])
+  assert.deepEqual(plan.toAdd, ['ready-for-qa'])
+  assert.deepEqual(plan.toRemove, ['develop-with-ai'])
 })
 
 test('detects material requirement edits and changes fingerprint', () => {
@@ -153,25 +72,6 @@ test('detects material requirement edits and changes fingerprint', () => {
   assert.equal(hasMaterialRequirementEdit({ body: { from: 'Body A' } }, 'Title A', 'Body B'), true)
   assert.equal(hasMaterialRequirementEdit({ body: { from: 'Body A' } }, 'Title A', 'Body A'), false)
   assert.equal(hasMaterialRequirementEdit({}, 'Title A', 'Body A'), false)
-})
-
-test('excludes active develop-with-ai and Copilot-assigned issues from daily routing', () => {
-  const ready = {
-    labels: [{ name: 'status:triaged' }, { name: 'ready-for-building' }],
-    assignees: []
-  }
-  const inProgress = {
-    labels: [{ name: 'status:triaged' }, { name: 'ready-for-building' }, { name: 'develop-with-ai' }],
-    assignees: []
-  }
-  const assignedToCopilot = {
-    labels: [{ name: 'status:triaged' }, { name: 'ready-for-building' }],
-    assignees: [{ login: 'copilot-swe-agent[bot]' }]
-  }
-
-  assert.equal(isRoutableIssue(ready), true)
-  assert.equal(isRoutableIssue(inProgress), false)
-  assert.equal(isRoutableIssue(assignedToCopilot), false)
 })
 
 test('filters closing issue references strictly to the local repository', () => {

@@ -54,7 +54,7 @@ Diagnose failures in the `Build and test` (`validate`) workflow and post a conci
 
 ## Investigation steps
 
-1. Resolve the failed `Build and test` run and target open pull request (`#${{ github.event.issue.number || inputs.pr_number }}` for `/diagnose-ci` or manual dispatch, or the open PR matching `github.event.workflow_run.head_sha` for `workflow_run`).
+1. Resolve the failed `Build and test` run and target open pull request from the workflow trigger context (`workflow_run` `head_sha`, centralized `/diagnose-ci` PR comment context, or manual `pr_number` input when dispatched).
 2. Inspect the failed step logs across Northstar Hotel's validation checks:
    - API integration tests (`dotnet test HotelBooking.slnx --configuration Release`)
    - Issue automation tests (`node --test .github/scripts/issue-automation.test.js`)
