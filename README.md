@@ -78,4 +78,15 @@ The default SQLite file is `northstar.db` in the API working directory. It is ig
 
 This is a shared, unauthenticated **local demo**, not a production reservation system. Everyone using the app can view guest names, change dates, and cancel bookings. Emails are stored locally but not returned in booking responses. Use only fictional details; do not expose the API publicly.
 
-Keep human approval, review, QA, and release gates in the existing workflows. A release remains a simulation, not deployment. Authentication, booking ownership, retention controls, payment handling, schema migrations, and public hosting are optional future production work, outside this baseline.
+Keep human approval, review, QA, and release gates in the existing workflows. A release remains a simulation, not deployment. Editing an approved issue resets `ready-for-building`, pushing new commits to a pull request resets `ready-for-qa`, QA promotion requires a clean Copilot review and green `validate` check on the current PR head commit, and release simulation verifies a merged closing PR on an immutable `main` commit.
+
+GitHub Agentic Workflows (`gh-aw`, compiled into `*.lock.yml` with `gh aw compile` and centralized slash-command routing in [agentic_commands.yml](.github/workflows/agentic_commands.yml)) own every reasoning-heavy SDLC stage with zero workflow duplication, while deterministic `.yml` workflows own label setup (`00`), Copilot delegation (`03`), CI (`Build and test`), review requests (`04`), SHA-bound QA promotion (`05`), simulated release (`06`), and Project v2 sync:
+
+- [issue-triage-agentic.md](.github/workflows/issue-triage-agentic.md) (`issues: [opened, edited, reopened]`, `/triage`, or `workflow_dispatch`) — codebase-aware semantic triage, duplicate check, deterministic stale `ready-for-building` reset on material edits, and post-triage Project v2 sync.
+- [daily-router-agentic.md](.github/workflows/daily-router-agentic.md) (`schedule: daily` with `skip-if-no-match`, or `workflow_dispatch`) — PR/file-overlap conflict-aware lane routing and human-lane assignment.
+- [ci-failure-investigator.md](.github/workflows/ci-failure-investigator.md) (`Build and test` failure on `main`/`copilot/**`, `/diagnose-ci`, or `workflow_dispatch`) — read-only CI log diagnosis on pull requests.
+- [qa-advisory.md](.github/workflows/qa-advisory.md) (`workflow_dispatch`) — read-only acceptance criteria and booking invariant audit.
+- [docs-drift-guard.md](.github/workflows/docs-drift-guard.md) (`workflow_dispatch`) — checks `README.md` and `.github/instructions/*` for drift and optionally opens one draft `[docs]` PR.
+- [release-readiness-audit.md](.github/workflows/release-readiness-audit.md) (`/verify-release` or `workflow_dispatch`) — read-only Go/No-Go release readiness report before a human applies `release-to-production`.
+
+Verify `gh-aw` behavior in a real fork before enabling agentic workflows for workshop attendees. See [SDLC-WORKFLOW-TEST-PLAN.md](docs/SDLC-WORKFLOW-TEST-PLAN.md) for the step-by-step local, pre-merge trial, live end-to-end, and fork test procedure. Authentication, booking ownership, retention controls, payment handling, schema migrations, and public hosting are optional future production work, outside this baseline.

@@ -3,6 +3,17 @@ name: 05 - Promote reviewed work to QA
 on:
   pull_request_review:
     types: [submitted]
+  pull_request:
+    types: [synchronize]
+  workflow_run:
+    workflows: ["Build and test"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to reconcile for QA promotion
+        required: true
+        type: number
 
 permissions:
   actions: read
@@ -12,87 +23,301 @@ permissions:
   pull-requests: read
 
 jobs:
-  promote:
+  invalidate-stale-qa:
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'synchronize' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: qa-promote-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     env:
-      GH_REPO: ${{ github.repository }}
       PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
       PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
       PROJECT_OWNER_TYPE: ${{ vars.PROJECT_OWNER_TYPE }}
       PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
     steps:
-      - name: Record non-Copilot review
-        if: ${{ github.event.review.user.type != 'Bot' || (github.actor != 'Copilot' && !startsWith(github.event.review.user.login, 'copilot-pull-request-reviewer')) }}
-        env:
-          REVIEWER_LOGIN: ${{ github.event.review.user.login }}
-        run: echo "::notice::Review by $REVIEWER_LOGIN recorded; QA promotion waits for Copilot's submitted review."
       - uses: actions/checkout@v4
-        if: ${{ github.event.review.user.type == 'Bot' && (github.actor == 'Copilot' || startsWith(github.event.review.user.login, 'copilot-pull-request-reviewer')) }}
         with:
           ref: ${{ github.event.repository.default_branch }}
-      - name: Require successful pull request checks
-        if: ${{ github.event.review.user.type == 'Bot' && (github.actor == 'Copilot' || startsWith(github.event.review.user.login, 'copilot-pull-request-reviewer')) }}
+      - name: Revoke stale ready-for-qa labels after new PR commits
+        id: reset
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const automation = require('./.github/scripts/issue-automation.js')
+            const { owner, repo } = context.repo
+            const prNumber = context.payload.pull_request.number
+            const headSha = context.payload.pull_request.head.sha
+
+            const query = `query($owner: String!, $repo: String!, $number: Int!) {
+              repository(owner: $owner, name: $repo) {
+                pullRequest(number: $number) {
+                  closingIssuesReferences(first: 20) {
+                    nodes {
+                      number
+                      repository { nameWithOwner }
+                    }
+                  }
+                }
+              }
+            }`
+            const data = await github.graphql(query, { owner, repo, number: prNumber })
+            const refs = data.repository?.pullRequest?.closingIssuesReferences?.nodes || []
+            const localIssues = automation.filterLocalClosingIssues(refs, owner, repo)
+            const resetIssues = []
+
+            for (const issueNumber of localIssues) {
+              const { data: issue } = await github.rest.issues.get({
+                owner,
+                repo,
+                issue_number: issueNumber
+              })
+              const labels = automation.normalizeLabelNames(issue.labels)
+              if (!labels.includes('ready-for-qa') || labels.includes('released')) continue
+
+              try {
+                await github.rest.issues.removeLabel({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                  name: 'ready-for-qa'
+                })
+              } catch (error) {
+                if (error.status !== 404) throw error
+              }
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body: `New commit \`${headSha.slice(0, 7)}\` was pushed to #${prNumber}, so \`ready-for-qa\` was removed pending fresh CI validation and Copilot review.`
+              })
+              resetIssues.push(issueNumber)
+              core.notice(`Revoked stale ready-for-qa on #${issueNumber} after PR #${prNumber} updated.`)
+            }
+
+            core.setOutput('issue_numbers', resetIssues.join(' '))
+      - name: Synchronize reset status to the Project
+        if: ${{ steps.reset.outputs.issue_numbers != '' && env.PROJECT_TOKEN != '' && env.PROJECT_OWNER != '' && env.PROJECT_NUMBER != '' }}
+        uses: actions/github-script@v7
         env:
-          GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        shell: bash
-        run: |
-          for attempt in $(seq 1 40); do
-            check="$(gh api \
-              -H "Accept: application/vnd.github+json" \
-              "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
-              --jq '[.check_runs[] | select(.name == "validate")] | sort_by(.started_at) | last | [.status, .conclusion] | @tsv')"
+          ISSUE_NUMBERS: ${{ steps.reset.outputs.issue_numbers }}
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const project = require('./.github/scripts/project-sync.js')
+            const issueNumbers = process.env.ISSUE_NUMBERS.split(/\s+/).filter(Boolean)
+            for (const issueNumber of issueNumbers) {
+              const { data: issue } = await github.rest.issues.get({
+                ...context.repo,
+                issue_number: Number(issueNumber)
+              })
+              await project.syncProject({
+                github,
+                context,
+                core,
+                ownerType: process.env.PROJECT_OWNER_TYPE || 'organization',
+                projectOwner: process.env.PROJECT_OWNER,
+                projectNumber: process.env.PROJECT_NUMBER,
+                issue
+              })
+            }
 
-            if [ -n "$check" ]; then
-              status="$(cut -f1 <<<"$check")"
-              conclusion="$(cut -f2 <<<"$check")"
-              if [ "$status" = "completed" ]; then
-                if [ "$conclusion" = "success" ]; then
-                  exit 0
-                fi
-                echo "::error::The validate check concluded with $conclusion."
-                exit 1
-              fi
-            fi
-
-            sleep 15
-          done
-
-          echo "::error::The validate check did not complete within 10 minutes."
-          exit 1
-      - name: Tag linked issues as ready for QA
-        if: ${{ github.event.review.user.type == 'Bot' && (github.actor == 'Copilot' || startsWith(github.event.review.user.login, 'copilot-pull-request-reviewer')) }}
+  promote:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request_review' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: qa-promote-${{ github.event.pull_request.number || inputs.pr_number || github.event.workflow_run.head_sha }}
+      cancel-in-progress: false
+    env:
+      PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+      PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+      PROJECT_OWNER_TYPE: ${{ vars.PROJECT_OWNER_TYPE }}
+      PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Reconcile PR checks, Copilot review, and QA labels
         id: qa
+        uses: actions/github-script@v7
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        shell: bash
-        run: |
-          gh label create "ready-for-qa" --color "FBCA04" \
-            --description "Implementation and Copilot review are complete" --force
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            const automation = require('./.github/scripts/issue-automation.js')
+            const { owner, repo } = context.repo
 
-          issue_numbers="$(gh pr view "$PR_NUMBER" --json closingIssuesReferences \
-            --jq '.closingIssuesReferences[].number')"
-          {
-            echo "issue_numbers<<EOF"
-            echo "$issue_numbers"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+            if (context.eventName === 'pull_request_review') {
+              const reviewUser = context.payload.review?.user
+              if (!automation.isCopilotReviewAuthor(reviewUser, context.actor)) {
+                core.notice(`Review by ${reviewUser?.login || context.actor} recorded; QA promotion waits for Copilot's submitted review.`)
+                core.setOutput('issue_numbers', '')
+                return
+              }
+            }
 
-          if [ -z "$issue_numbers" ]; then
-            gh pr comment "$PR_NUMBER" --body \
-              "Copilot review completed, but no issue is linked. Add \`Closes #<issue>\` to the PR description."
-            exit 0
-          fi
+            const targetPrNumbers = []
+            if (context.eventName === 'pull_request_review') {
+              targetPrNumbers.push(context.payload.pull_request.number)
+            } else if (context.eventName === 'workflow_dispatch') {
+              const parsed = Number(process.env.INPUT_PR_NUMBER)
+              if (!Number.isInteger(parsed) || parsed <= 0) {
+                core.setFailed('Provide a valid positive pr_number input.')
+                return
+              }
+              targetPrNumbers.push(parsed)
+            } else if (context.eventName === 'workflow_run') {
+              const run = context.payload.workflow_run
+              for (const pr of run.pull_requests || []) {
+                if (pr.base?.repo?.full_name?.toLowerCase() === `${owner}/${repo}`.toLowerCase()) {
+                  targetPrNumbers.push(pr.number)
+                }
+              }
+              if (targetPrNumbers.length === 0 && run.head_sha) {
+                const openPrs = await github.paginate(github.rest.pulls.list, {
+                  owner,
+                  repo,
+                  state: 'open',
+                  per_page: 100
+                })
+                for (const pr of openPrs) {
+                  if (pr.head?.sha === run.head_sha) {
+                    targetPrNumbers.push(pr.number)
+                  }
+                }
+              }
+            }
 
-          while read -r issue_number; do
-            gh issue edit "$issue_number" --add-label "ready-for-qa" \
-              --remove-label "develop-with-ai"
-            gh issue comment "$issue_number" --body \
-              "Copilot code review completed on #$PR_NUMBER. This work is now \`ready-for-qa\`."
-          done <<< "$issue_numbers"
+            if (targetPrNumbers.length === 0) {
+              core.notice('No matching open pull requests found for QA reconciliation.')
+              core.setOutput('issue_numbers', '')
+              return
+            }
+
+            const prQuery = `query($owner: String!, $repo: String!, $number: Int!) {
+              repository(owner: $owner, name: $repo) {
+                pullRequest(number: $number) {
+                  number
+                  state
+                  isDraft
+                  headRefOid
+                  closingIssuesReferences(first: 20) {
+                    nodes {
+                      number
+                      repository { nameWithOwner }
+                    }
+                  }
+                  reviewThreads(first: 100) {
+                    nodes {
+                      isResolved
+                      isOutdated
+                      comments(first: 1) {
+                        nodes {
+                          author { login }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }`
+
+            const promotedIssues = []
+
+            for (const prNumber of [...new Set(targetPrNumbers)]) {
+              const data = await github.graphql(prQuery, { owner, repo, number: prNumber })
+              const pr = data.repository?.pullRequest
+              if (!pr) {
+                core.warning(`Pull request #${prNumber} was not found.`)
+                continue
+              }
+
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                owner,
+                repo,
+                pull_number: prNumber,
+                per_page: 100
+              })
+              const checkRuns = await github.paginate(github.rest.checks.listForRef, {
+                owner,
+                repo,
+                ref: pr.headRefOid,
+                per_page: 100
+              })
+
+              const evaluation = automation.evaluateQaPromotion({
+                pr,
+                reviews,
+                checkRuns,
+                reviewThreads: pr.reviewThreads?.nodes || []
+              })
+
+              if (!evaluation.eligible) {
+                core.notice(`PR #${prNumber} is not eligible for QA promotion: ${evaluation.reason}`)
+                if (context.eventName === 'pull_request_review' || context.eventName === 'workflow_dispatch') {
+                  await automation.upsertMarkerComment(
+                    github,
+                    owner,
+                    repo,
+                    prNumber,
+                    automation.qaBlockMarker,
+                    `${automation.qaBlockMarker}\nQA promotion is waiting on #${prNumber} (\`${pr.headRefOid.slice(0, 7)}\`): ${evaluation.reason}\n\nResolve any Copilot review findings or wait for \`validate\` to finish, then re-run **05 - Promote reviewed work to QA** via \`workflow_dispatch\` if needed.`
+                  )
+                }
+                continue
+              }
+
+              const refs = pr.closingIssuesReferences?.nodes || []
+              const localIssueNumbers = automation.filterLocalClosingIssues(refs, owner, repo)
+              if (localIssueNumbers.length === 0) {
+                await automation.upsertMarkerComment(
+                  github,
+                  owner,
+                  repo,
+                  prNumber,
+                  automation.qaBlockMarker,
+                  `${automation.qaBlockMarker}\nCopilot review and \`validate\` passed for \`${pr.headRefOid.slice(0, 7)}\`, but no local issue is linked. Add \`Closes #<issue>\` to the PR description and re-run **05 - Promote reviewed work to QA**.`
+                )
+                continue
+              }
+
+              await automation.ensureLabels(github, owner, repo, ['ready-for-qa'])
+
+              for (const issueNumber of localIssueNumbers) {
+                const { data: liveIssue } = await github.rest.issues.get({
+                  owner,
+                  repo,
+                  issue_number: issueNumber
+                })
+                const liveLabels = automation.normalizeLabelNames(liveIssue.labels)
+                if (liveLabels.includes('released')) {
+                  core.notice(`Issue #${issueNumber} is already released; skipping QA promotion.`)
+                  continue
+                }
+
+                await automation.applyOwnedLabels(
+                  github,
+                  owner,
+                  repo,
+                  issueNumber,
+                  liveLabels,
+                  ['ready-for-qa'],
+                  (name) => name === 'ready-for-qa' || name === 'develop-with-ai'
+                )
+
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                  body: `Copilot code review and \`validate\` check passed on #${prNumber} at commit \`${pr.headRefOid.slice(0, 7)}\`. This work is now \`ready-for-qa\`.`
+                })
+                promotedIssues.push(issueNumber)
+              }
+            }
+
+            core.setOutput('issue_numbers', [...new Set(promotedIssues)].join(' '))
       - name: Synchronize QA status to the Project
-        if: ${{ github.event.review.user.type == 'Bot' && (github.actor == 'Copilot' || startsWith(github.event.review.user.login, 'copilot-pull-request-reviewer')) && steps.qa.outputs.issue_numbers != '' && env.PROJECT_TOKEN != '' && env.PROJECT_OWNER != '' && env.PROJECT_NUMBER != '' }}
+        if: ${{ steps.qa.outputs.issue_numbers != '' && env.PROJECT_TOKEN != '' && env.PROJECT_OWNER != '' && env.PROJECT_NUMBER != '' }}
         uses: actions/github-script@v7
         env:
           ISSUE_NUMBERS: ${{ steps.qa.outputs.issue_numbers }}
