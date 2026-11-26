@@ -91,8 +91,8 @@ gh aw trial .github/workflows/daily-router-agentic.md --logical-repo <owner>/<re
 
 | Name | Type | Used by | Purpose |
 |---|---|---|---|
-| `COPILOT_GITHUB_TOKEN` | Secret | `01`, `02`, `AW 04`–`AW 07` (`*.lock.yml`) | Runs the Copilot engine in `gh-aw` (unless org token-based billing is enabled) |
 | `COPILOT_AGENT_TOKEN` | Secret | `03 - Delegate approved issue to Copilot` | Assigns `copilot-swe-agent[bot]` |
+| `COPILOT_GITHUB_TOKEN` | Secret *(fallback)* | `01`, `02`, `AW 04`–`AW 07` (`*.lock.yml`) | Only needed if centralized Copilot billing for `permissions.copilot-requests: write` is unavailable |
 | `PROJECT_TOKEN` | Secret | `Sync issue to GitHub Project` and post-step syncs *(optional)* | Updates GitHub Projects v2 status |
 | `PROJECT_OWNER`, `PROJECT_OWNER_TYPE`, `PROJECT_NUMBER` | Variables | Project sync *(optional)* | Identifies the target Project v2 board |
 | `HUMAN_MAINTAINER` | Variable | `02 - Route top ready issues` *(optional)* | GitHub username assigned to local/human lanes |

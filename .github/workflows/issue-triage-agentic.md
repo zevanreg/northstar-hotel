@@ -22,6 +22,7 @@ concurrency:
 permissions:
   contents: read
   issues: read
+  copilot-requests: write
 
 tools:
   github:
