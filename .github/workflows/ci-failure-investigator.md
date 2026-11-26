@@ -7,10 +7,6 @@ on:
     branches:
       - main
       - "copilot/**"
-  slash_command:
-    name: diagnose-ci
-    events: [issue_comment]
-    strategy: centralized
   workflow_dispatch:
     inputs:
       pr_number:
@@ -21,7 +17,7 @@ on:
 engine: copilot
 
 concurrency:
-  job-discriminator: "${{ github.event.workflow_run.head_sha || github.event.issue.number || inputs.pr_number || github.run_id }}"
+  job-discriminator: "${{ github.event.workflow_run.head_sha || inputs.pr_number || github.run_id }}"
 
 permissions:
   actions: read
@@ -55,7 +51,7 @@ Diagnose failures in the `Build and test` (`validate`) workflow and post a conci
 
 ## Investigation steps
 
-1. Resolve the failed `Build and test` run and target open pull request from the workflow trigger context (`workflow_run` `head_sha`, centralized `/diagnose-ci` PR comment context, or manual `pr_number` input when dispatched).
+1. Resolve the failed `Build and test` run and target open pull request from the workflow trigger context (`workflow_run` `head_sha`, or manual `pr_number` input when dispatched).
 2. Inspect the failed step logs across Northstar Hotel's validation checks:
    - API integration tests (`dotnet test HotelBooking.slnx --configuration Release`)
    - Issue automation tests (`node --test .github/scripts/issue-automation.test.js`)

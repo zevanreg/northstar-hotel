@@ -1,10 +1,6 @@
 ---
 name: AW 07 - Pre-release readiness audit
 on:
-  slash_command:
-    name: verify-release
-    events: [issue_comment]
-    strategy: centralized
   workflow_dispatch:
     inputs:
       issue_number:
@@ -15,7 +11,7 @@ on:
 engine: copilot
 
 concurrency:
-  job-discriminator: "${{ github.event.issue.number || inputs.issue_number || github.run_id }}"
+  job-discriminator: "${{ inputs.issue_number || github.run_id }}"
 
 permissions:
   actions: read
@@ -38,7 +34,7 @@ safe-outputs:
 
 # Pre-Release Readiness Audit (`gh-aw` Workflow)
 
-Automate `.github/prompts/verify-release.prompt.md` as a **read-only Go/No-Go audit** for the triggering issue (from the `/verify-release` command context or manual `issue_number` input when dispatched) before a human maintainer applies `release-to-production`.
+Automate `.github/prompts/verify-release.prompt.md` as a **read-only Go/No-Go audit** for the target issue (from the `issue_number` input when dispatched, or the latest open `ready-for-qa` issue when omitted) before a human maintainer applies `release-to-production`.
 
 ## Strict boundaries
 
@@ -48,7 +44,7 @@ Automate `.github/prompts/verify-release.prompt.md` as a **read-only Go/No-Go au
 
 ## Readiness checklist
 
-1. **Issue & gate state:** Identify the target issue from the workflow trigger context (or `inputs.issue_number` when manually dispatched). Verify it currently has `ready-for-qa`, is not already `released`, and record its `updated_at` timestamp.
+1. **Issue & gate state:** Identify the target issue from `inputs.issue_number` (or the most recently updated `ready-for-qa` issue when omitted). Verify it currently has `ready-for-qa`, is not already `released`, and record its `updated_at` timestamp.
 2. **Merged closing PR on `main`:** Verify at least one same-repository closing pull request (`Closes #<issue>`) is merged into `main`, record its PR number and merge commit SHA, and confirm that commit is on `main`.
 3. **`main` branch health:** Check the latest `Build and test` (`validate`) check run on `main` HEAD and record the exact `main` commit SHA and conclusion.
 4. **Acceptance criteria & invariants:** Compare the issue's acceptance criteria against the merged PR diff and tests (`tests/HotelBooking.Api.Tests`, `.github/scripts/issue-automation.test.js`, `src/hotel-booking-web`), checking Northstar booking rules, documentation updates, and absence of secrets or `northstar.db`.

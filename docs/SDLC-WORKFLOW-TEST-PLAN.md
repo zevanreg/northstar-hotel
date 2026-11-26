@@ -52,7 +52,7 @@ gh aw compile --validate --show-all
 
 **Outcome:** Preview `gh-aw` safe-output behavior in an isolated temporary repository before merging new workflows to `main`.
 
-GitHub Actions only registers new `workflow_dispatch`, `issue_comment` (slash commands), and `workflow_run` triggers once they exist on the default branch (`main`). Use `gh aw trial` to test changes before merging without mutating real issues or pull requests.
+GitHub Actions only registers new `workflow_dispatch`, `issues`, and `workflow_run` triggers once they exist on the default branch (`main`). Use `gh aw trial` to test changes before merging without mutating real issues or pull requests.
 
 ### Actions
 
@@ -115,16 +115,15 @@ gh aw trial .github/workflows/daily-router-agentic.md --logical-repo <owner>/<re
 
 Create one disposable test issue (for example, a small UI copy note with 2 clear acceptance criteria) and run through sections A–D in order.
 
-### A. Semantic triage, slash commands, and stale-approval revocation
+### A. Semantic triage, manual re-triage, and stale-approval revocation
 
 | Step | Action | Expected evidence |
 |---|---|---|
 | A1 | Open the test issue. | `01 - Semantic issue triage` (`issue-triage-agentic.lock.yml`) applies `area:*`, `kind:*`, `priority:*`, `complexity:*`, and `status:triaged`, removes `status:new`, posts one replaceable codebase-grounded triage comment, and runs `sync-project` if configured. No human gate labels are touched. |
-| A2 | Comment `/triage` on the issue (or run `gh aw run issue-triage-agentic --raw-field issue_number=<ISSUE>`). | `Agentic Commands` adds an `👀` reaction and dispatches `01 - Semantic issue triage`, updating the existing triage comment in place. |
-| A3 | Comment `/help` on the issue. | `Agentic Commands` replies with the list of registered slash commands (`/diagnose-ci`, `/triage`, `/verify-release`). |
-| A4 | Add `ready-for-building`, then edit the issue body. | The deterministic `reset-stale-approval` job in `01 - Semantic issue triage` removes `ready-for-building`, posts an **Approval reset** comment with the new revision hash, and syncs Project status. Re-apply `ready-for-building` to continue. |
+| A2 | Run **Actions → `01 - Semantic issue triage` → Run workflow** with `issue_number: <ISSUE>` (or `gh aw run issue-triage-agentic --raw-field issue_number=<ISSUE>`). | Re-runs triage and updates the existing triage comment in place. |
+| A3 | Add `ready-for-building`, then edit the issue body. | The deterministic `reset-stale-approval` job in `01 - Semantic issue triage` removes `ready-for-building`, posts an **Approval reset** comment with the new revision hash, and syncs Project status. Re-apply `ready-for-building` to continue. |
 
-**Recovery:** If `/triage` does not fire, confirm `.github/workflows/agentic_commands.yml` is on `main` and check the **Actions → `Agentic Commands`** log.
+**Recovery:** If `01 - Semantic issue triage` skips on issue open, check the `pre_activation` job log to confirm the actor has repository write/maintain/admin membership.
 
 ### B. Conflict-aware routing and Copilot delegation gate
 
@@ -141,7 +140,7 @@ Create one disposable test issue (for example, a small UI copy note with 2 clear
 
 | Step | Action | Expected evidence |
 |---|---|---|
-| C1 *(optional)* | On a PR targeting `main` (on a `copilot/**` branch, or manually via `/diagnose-ci` on any PR), introduce a temporary lint or test error so `Build and test` fails. | `AW 04 - CI failure investigator` posts one replaceable comment identifying the failing step, file, and suggested fix without modifying code or labels. |
+| C1 *(optional)* | On a PR targeting `main` (on a `copilot/**` branch, or manually via `gh aw run ci-failure-investigator --raw-field pr_number=<PR>`), introduce a temporary lint or test error so `Build and test` fails. | `AW 04 - CI failure investigator` posts one replaceable comment identifying the failing step, file, and suggested fix without modifying code or labels. |
 | C2 | Fix the error and mark the PR ready for review with `Closes #<ISSUE>` in the PR body. | `Build and test` (`validate`) passes and `04 - Start automatic Copilot code review` requests `copilot-pull-request-reviewer[bot]`. |
 | C3 | If Copilot leaves an unresolved review thread, inspect `05 - Promote reviewed work to QA`. | Promotion is **blocked** and a status comment explains the remaining blocker (unresolved Copilot threads, stale review commit, or pending `validate`). |
 | C4 | Resolve all Copilot review threads so `validate` is green and Copilot review matches the current PR head SHA. If resolving a thread did not trigger a new event, run **Actions → `05 - Promote reviewed work to QA` → Run workflow** with `pr_number: <PR>`. | `05 - Promote reviewed work to QA` swaps `develop-with-ai` → `ready-for-qa` on local linked issues only and posts a comment citing the exact PR head SHA. |
@@ -157,7 +156,7 @@ Create one disposable test issue (for example, a small UI copy note with 2 clear
 | D1 *(optional)* | Run `gh aw run docs-drift-guard --raw-field pr_number=<PR> --raw-field open_pr=false`. | Posts one comment listing confirmed doc drift (or confirming no drift) without opening a PR. Optionally test with `open_pr=true` to verify at most one draft `[docs]` PR is created. |
 | D2 | **Before** merging the PR, add `release-to-production` to the `ready-for-qa` issue. | `06 - Simulate production release` **rejects and removes** `release-to-production` and comments that a linked PR must be merged into `main` first. |
 | D3 | Merge the PR into `main`. | Linked PR is merged on `main` and `Build and test` runs on `main`. |
-| D4 *(optional)* | Comment `/verify-release` on the issue (or run `gh aw run release-readiness-audit --raw-field issue_number=<ISSUE>`). | `AW 07 - Pre-release readiness audit` posts one replaceable Go/No-Go checklist verifying `ready-for-qa`, merged closing PR on `main`, and green `main` CI, without mutating labels. |
+| D4 *(optional)* | Run `gh aw run release-readiness-audit --raw-field issue_number=<ISSUE>` (or **Actions → `AW 07 - Pre-release readiness audit`**). | `AW 07 - Pre-release readiness audit` posts one replaceable Go/No-Go checklist verifying `ready-for-qa`, merged closing PR on `main`, and green `main` CI, without mutating labels. |
 | D5 | Add `release-to-production` to the issue (or retry via **Actions → `06 - Simulate production release`** with `issue_number`). | Workflow resolves and checks out an immutable `main` SHA, verifies `git merge-base --is-ancestor`, runs API tests + Node automation tests + web lint + web build, uploads the `simulated-production-release` artifact, adds `released`, and syncs Project status to `Done`. |
 | D6 | Download and inspect `release/manifest.json` from the `simulated-production-release` artifact. | Contains `commit` matching the tested `main` HEAD SHA, `issue`, `mergedPr`, `mergeCommit`, `run`, `releasedAt`, and `"environment": "simulation"`. |
 
@@ -173,7 +172,7 @@ Create one disposable test issue (for example, a small UI copy note with 2 clear
 
 1. Fork the repository into a separate test account or organization.
 2. Enable GitHub Actions on the fork and configure `COPILOT_GITHUB_TOKEN`.
-3. Run `gh aw run qa-advisory --raw-field pr_number=<PR>` and comment `/triage` on a test issue in the fork.
+3. Open a test issue in the fork (to test `01 - Semantic issue triage`) and run `gh aw run qa-advisory --raw-field pr_number=<PR>`.
 
 ### Expected evidence
 

@@ -3,10 +3,6 @@ name: 01 - Semantic issue triage
 on:
   issues:
     types: [opened, edited, reopened]
-  slash_command:
-    name: triage
-    events: [issue_comment]
-    strategy: centralized
   workflow_dispatch:
     inputs:
       issue_number:
@@ -168,7 +164,7 @@ jobs:
 
 # Semantic Issue Triage (`gh-aw` Workflow)
 
-Run codebase-aware triage for the triggering issue (from the issue event, `/triage` command context, or manual `issue_number` input when dispatched).
+Run codebase-aware triage for the triggering issue (from the issue event or manual `issue_number` input when dispatched).
 
 ## Strict boundaries
 
