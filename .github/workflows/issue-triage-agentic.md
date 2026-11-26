@@ -64,7 +64,8 @@ safe-outputs:
 
 jobs:
   reset-stale-approval:
-    if: ${{ github.event_name == 'issues' && github.event.action == 'edited' && !github.event.issue.pull_request }}
+    needs: [safe_outputs]
+    if: ${{ always() && github.event_name == 'issues' && github.event.action == 'edited' && !github.event.issue.pull_request }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
