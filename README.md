@@ -43,7 +43,7 @@ Expected evidence: passing API and automation tests, clean lint, and generated w
 ## Booking behavior
 
 - Check-in is inclusive; check-out is exclusive. Adjacent stays are allowed.
-- Dates use the UTC calendar. Check-in must be today or later; check-out must follow check-in.
+- Dates use the UTC calendar; the page footer shows today's UTC date. Check-in must be today or later; check-out must follow check-in.
 - Availability is rechecked inside a SQLite write transaction when booking or changing dates. An amendment excludes its own booking; a conflict returns HTTP 409 and leaves the original stay unchanged.
 - Guest name, email, positive guest count, and room capacity are validated at the API boundary.
 - Prices are USD. The decimal nightly rate times the number of nights is stored as the booking total. No payment is collected.
