@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Northstar issue form</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="client.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">NORTHSTAR HOTEL / ISSUE INTAKE</p>
+      <h1>A clear outcome starts here.</h1>
+      <p>Describe a booking problem or a testable product requirement. You stay in control of submission.</p>
+    </header>
+    <p id="status" role="status" aria-live="polite">Loading saved draft...</p>
+    <form id="issue" hidden>
+      <label for="kind">Issue type</label>
+      <select id="kind" name="kind"></select>
+      <label for="title">Title <span aria-hidden="true">*</span></label>
+      <input id="title" name="title" required maxlength="200" placeholder="Summarize the outcome or problem">
+      <div id="fields"></div>
+      <p class="hint">Required fields are marked *. Use fictional guest details; remove secrets and personal information.</p>
+      <div class="actions">
+        <button type="button" id="save">Save local draft</button>
+        <button type="submit" class="primary">Prepare GitHub review</button>
+      </div>
+    </form>
+    <section id="review" hidden aria-labelledby="review-heading">
+      <h2 id="review-heading">Review before sharing</h2>
+      <p>Nothing has been submitted. The link opens a prefilled issue on GitHub, where you review and submit it.</p>
+      <pre id="preview"></pre>
+      <a id="github" target="_blank" rel="noopener noreferrer">Review on GitHub</a>
+    </section>
+  </main>
+</body>
+</html>
