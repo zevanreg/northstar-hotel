@@ -70,7 +70,7 @@ gh aw trial .github/workflows/daily-router-agentic.md --logical-repo <owner>/<re
 
 ### Expected evidence
 
-- Local trial output is saved under `trials/` showing what context the agent read, which `safe-outputs` were proposed, and threat-detection results.
+- Local trial output is saved under `trials/` showing what context the agent read and which `safe-outputs` were proposed.
 - No labels, comments, or pull requests are modified in `<owner>/<repo>`.
 
 ### Recovery
@@ -115,50 +115,71 @@ gh aw trial .github/workflows/daily-router-agentic.md --logical-repo <owner>/<re
 
 Create one disposable test issue (for example, a small UI copy note with 2 clear acceptance criteria) and run through sections A–D in order.
 
+### Manual handoffs between stages (at a glance)
+
+Automation never crosses a human gate on its own. To move one issue all the way from intake to `released`, you perform these exact manual actions in order:
+
+1. **Create the issue** (starts `01 - Semantic issue triage` automatically).
+2. **Add `ready-for-building`** on the issue once triage finishes (unlocks `02 - Route top ready issues` and `03 - Delegate approved issue to Copilot`).
+3. **Manually dispatch `02 - Route top ready issues`** (unless waiting for the daily schedule).
+4. **Add `develop-with-ai`** on the issue to start Copilot implementation (`03 - Delegate approved issue to Copilot`).
+5. **Mark the PR ready for review** (if Copilot opened it as a draft) and ensure the PR body contains `Closes #<ISSUE>` (triggers `Build and test` + `04 - Start automatic Copilot code review`).
+6. **Resolve any Copilot review threads** on the PR, and if resolving threads did not trigger a new CI/review run, **manually dispatch `05 - Promote reviewed work to QA`** with `pr_number` (applies `ready-for-qa`).
+7. **Merge the PR into `main`** after QA review (and optionally run `AW 05` / `AW 06` / `AW 07`).
+8. **Add `release-to-production`** on the `ready-for-qa` issue (triggers `06 - Simulate production release` → applies `released` and uploads the artifact).
+
+---
+
 ### A. Semantic triage, manual re-triage, and stale-approval revocation
 
-| Step | Action | Expected evidence |
-|---|---|---|
-| A1 | Open the test issue. | `01 - Semantic issue triage` (`issue-triage-agentic.lock.yml`) applies `area:*`, `kind:*`, `priority:*`, `complexity:*`, and `status:triaged`, removes `status:new`, posts one replaceable codebase-grounded triage comment, and runs `sync-project` if configured. No human gate labels are touched. |
-| A2 | Run **Actions → `01 - Semantic issue triage` → Run workflow** with `issue_number: <ISSUE>` (or `gh aw run issue-triage-agentic --raw-field issue_number=<ISSUE>`). | Re-runs triage and updates the existing triage comment in place. |
-| A3 | Add `ready-for-building`, then edit the issue body. | The deterministic `reset-stale-approval` job in `01 - Semantic issue triage` removes `ready-for-building`, posts an **Approval reset** comment with the new revision hash, and syncs Project status. Re-apply `ready-for-building` to continue. |
+| Step | Action / trigger | Expected evidence | Manual action required to proceed |
+|---|---|---|---|
+| A1 | **Manual:** Open a new issue using the **Product requirement** template (`status:new` is added automatically). | `01 - Semantic issue triage` (`issue-triage-agentic.lock.yml`) runs automatically, applies `area:*`, `kind:*`, `priority:*`, `complexity:*`, and `status:triaged`, removes `status:new`, posts one replaceable codebase-grounded triage comment, and runs `sync-project` if configured. No human gate labels are touched. | Wait for `01 - Semantic issue triage` to finish (`status:triaged` present). To test manual re-triage, go to **A2**; otherwise skip directly to **A3**. |
+| A2 *(optional)* | **Manual:** Run **Actions → `01 - Semantic issue triage` → Run workflow** with `issue_number: <ISSUE>` (or `gh aw run issue-triage-agentic --raw-field issue_number=<ISSUE>`). | Re-runs triage and updates the existing triage comment in place. | Wait for the run to complete, then continue to **A3**. |
+| A3 | **Manual:** On the issue, add the `ready-for-building` label, wait ~5 seconds, then edit the issue body (add a clarifying sentence) and click **Save**. | `01 - Semantic issue triage` runs on `issues: [edited]`; its deterministic `reset-stale-approval` job removes `ready-for-building`, posts an **Approval reset** comment with the new revision hash, and syncs Project status. | **Wait for `reset-stale-approval` to finish, then manually re-add the `ready-for-building` label on the issue.** Section B cannot route or delegate the issue without `ready-for-building`. |
 
 **Recovery:** If `01 - Semantic issue triage` skips on issue open, check the `pre_activation` job log to confirm the actor has repository write/maintain/admin membership.
 
+---
+
 ### B. Conflict-aware routing and Copilot delegation gate
 
-| Step | Action | Expected evidence |
-|---|---|---|
-| B1 | Run **Actions → `02 - Route top ready issues`** (`daily-router-agentic.lock.yml`) with `apply_labels: true` (or `gh aw run daily-router-agentic --raw-field apply_labels=true`). | `pre_activation` (`skip-if-no-match`) finds the eligible issue, recommends an `agent:*` lane with conflict checks against open PRs, and never adds or removes human gate labels. |
-| B2 | On a second issue **without** `ready-for-building`, add `develop-with-ai`. | `03 - Delegate approved issue to Copilot` removes `develop-with-ai` and comments that `ready-for-building` is required first. |
-| B3 | On the approved test issue (which has `ready-for-building`), add `develop-with-ai`. | `03 - Delegate approved issue to Copilot` re-reads live labels, assigns `copilot-swe-agent[bot]` with the matched custom agent, and posts confirmation. |
-| B4 | Run `02 - Route top ready issues` again with no other ready issues open. | `skip-if-no-match` skips the agent job cleanly (zero LLM run) because the active `develop-with-ai` issue is excluded from the query. |
+| Step | Action / trigger | Expected evidence | Manual action required to proceed |
+|---|---|---|---|
+| B1 | **Manual:** Run **Actions → `02 - Route top ready issues` → Run workflow** with `apply_labels: true` (or `gh aw run daily-router-agentic --raw-field apply_labels=true`). | `pre_activation` (`skip-if-no-match`) finds the eligible `status:triaged` + `ready-for-building` issue, applies one `agent:*` lane label, posts a routing comment with conflict checks against open PRs, and never touches human gate labels. | Inspect the routing comment and `agent:*` label. (Routing does **not** start Copilot automatically.) Continue to **B2** to verify gate rejection, or **B3** to delegate. |
+| B2 *(gate test)* | **Manual:** Pick or open a second issue that does **not** have `ready-for-building`, and add `develop-with-ai`. | `03 - Delegate approved issue to Copilot` runs automatically, removes `develop-with-ai`, and comments that `ready-for-building` is required first. | Confirm `develop-with-ai` was removed, then return to your approved test issue for **B3**. |
+| B3 | **Manual:** On the approved test issue (which has `ready-for-building`), add the `develop-with-ai` label. | `03 - Delegate approved issue to Copilot` re-reads live labels, assigns `copilot-swe-agent[bot]` with the matched custom agent, and posts confirmation. | Wait for Copilot to accept the issue and open a pull request (visible in the issue timeline). While Copilot is working, optionally run **B4**; otherwise proceed to **Section C** once the PR exists. |
+| B4 *(optional)* | **Manual:** Run `02 - Route top ready issues` again (via Actions UI or `gh aw run daily-router-agentic --raw-field apply_labels=true`) while no other unstarted `ready-for-building` issues exist. | `skip-if-no-match` skips the agent job cleanly (zero LLM run) because the active `develop-with-ai` issue is excluded from the query. | Proceed to **Section C** once the PR for your test issue is open. |
 
 **Recovery:** If delegation comments that `COPILOT_AGENT_TOKEN` is missing, add the secret in Repository Settings, remove and re-add `develop-with-ai`, and re-check the run log.
 
+---
+
 ### C. CI failure investigation, QA promotion, and stale QA revocation
 
-| Step | Action | Expected evidence |
-|---|---|---|
-| C1 *(optional)* | On a PR targeting `main` (on a `copilot/**` branch, or manually via `gh aw run ci-failure-investigator --raw-field pr_number=<PR>`), introduce a temporary lint or test error so `Build and test` fails. | `AW 04 - CI failure investigator` posts one replaceable comment identifying the failing step, file, and suggested fix without modifying code or labels. |
-| C2 | Fix the error and mark the PR ready for review with `Closes #<ISSUE>` in the PR body. | `Build and test` (`validate`) passes and `04 - Start automatic Copilot code review` requests `copilot-pull-request-reviewer[bot]`. |
-| C3 | If Copilot leaves an unresolved review thread, inspect `05 - Promote reviewed work to QA`. | Promotion is **blocked** and a status comment explains the remaining blocker (unresolved Copilot threads, stale review commit, or pending `validate`). |
-| C4 | Resolve all Copilot review threads so `validate` is green and Copilot review matches the current PR head SHA. If resolving a thread did not trigger a new event, run **Actions → `05 - Promote reviewed work to QA` → Run workflow** with `pr_number: <PR>`. | `05 - Promote reviewed work to QA` swaps `develop-with-ai` → `ready-for-qa` on local linked issues only and posts a comment citing the exact PR head SHA. |
-| C5 | Push one more commit to the same-repo PR branch after `ready-for-qa` was applied. | `invalidate-stale-qa` in `05 - Promote reviewed work to QA` automatically removes `ready-for-qa` and posts a comment referencing the new commit SHA. Wait for `validate` + fresh Copilot review (or re-run `05` via `workflow_dispatch`) to restore `ready-for-qa`. |
-| C6 *(optional)* | Run `gh aw run qa-advisory --raw-field pr_number=<PR>` (or **Actions → `AW 05 - Advisory QA and acceptance verification`**). | Posts one replaceable acceptance-criteria and booking-invariant audit stamped with the exact PR head SHA and issue `updated_at`, with zero label mutations. |
+| Step | Action / trigger | Expected evidence | Manual action required to proceed |
+|---|---|---|---|
+| C1 *(optional)* | **Manual:** On a PR targeting `main` (on a `copilot/**` branch for automatic trigger, or on any PR followed by `gh aw run ci-failure-investigator --raw-field pr_number=<PR>`), push a commit with a temporary lint or test error so `Build and test` fails. | `AW 04 - CI failure investigator` posts one replaceable comment identifying the failing step, file, and suggested fix without modifying code or labels. | **Manual:** Push a fix commit reverting the temporary error so `Build and test` can pass in **C2**. |
+| C2 | **Manual:** Open the PR, verify its description includes `Closes #<ISSUE>` (edit the PR body to add it if missing), and click **Ready for review** if the PR is still a draft. | `Build and test` (`validate`) runs and passes, and `04 - Start automatic Copilot code review` requests `copilot-pull-request-reviewer[bot]`. | Wait for both the `validate` check and Copilot's code review to finish before moving to **C3** / **C4**. |
+| C3 *(if review has findings)* | **Automatic:** `05 - Promote reviewed work to QA` runs when Copilot submits its review. | If Copilot left unresolved review threads (or `validate` is not yet green on the current head SHA), promotion is **blocked** and a status comment explains the exact blocker. | **Manual:** Address any real review feedback (pushing commits if needed) and click **Resolve conversation** on every Copilot review thread so zero unresolved Copilot threads remain. |
+| C4 | **Automatic or Manual:** If you pushed new commits, `Build and test` + fresh Copilot review re-trigger `05 - Promote reviewed work to QA`. If you only clicked **Resolve conversation** (no new commit/review event), **manually run Actions → `05 - Promote reviewed work to QA` → Run workflow** with `pr_number: <PR>`. | `05 - Promote reviewed work to QA` verifies the current PR head SHA has both passing `validate` and clean Copilot review, swaps `develop-with-ai` → `ready-for-qa` on local linked issues only, and posts a comment citing the exact commit SHA. | Confirm `ready-for-qa` is now on the issue. Proceed to **C5** to test stale-QA revocation, or skip to **C6** / **Section D**. |
+| C5 *(stale-QA test)* | **Manual:** Push one trivial commit to the same-repo PR branch *after* `ready-for-qa` was applied. | `invalidate-stale-qa` in `05 - Promote reviewed work to QA` automatically removes `ready-for-qa` and posts a comment referencing the new commit SHA. | Wait for `Build and test` to pass on the new head SHA, **manually re-request Copilot review** on the PR (or push/reconcile once Copilot reviews the new head SHA), and **re-run `05 - Promote reviewed work to QA`** (`pr_number: <PR>`) if needed until `ready-for-qa` is restored. |
+| C6 *(optional)* | **Manual:** Run `gh aw run qa-advisory --raw-field pr_number=<PR>` (or **Actions → `AW 05 - Advisory QA and acceptance verification` → Run workflow**). | Posts one replaceable acceptance-criteria and booking-invariant audit stamped with the exact PR head SHA and issue `updated_at`, with zero label mutations. | Review the advisory QA report and proceed to **Section D**. |
 
-**Recovery:** If `05 - Promote reviewed work to QA` reports no linked local issue, add `Closes #<ISSUE>` to the PR description and manually dispatch `05 - Promote reviewed work to QA` with `pr_number`.
+**Recovery:** If `05 - Promote reviewed work to QA` reports no linked local issue, edit the PR description to add `Closes #<ISSUE>` and manually dispatch `05 - Promote reviewed work to QA` with `pr_number`.
+
+---
 
 ### D. Docs drift, pre-release audit, and immutable release simulation
 
-| Step | Action | Expected evidence |
-|---|---|---|
-| D1 *(optional)* | Run `gh aw run docs-drift-guard --raw-field pr_number=<PR> --raw-field open_pr=false`. | Posts one comment listing confirmed doc drift (or confirming no drift) without opening a PR. Optionally test with `open_pr=true` to verify at most one draft `[docs]` PR is created. |
-| D2 | **Before** merging the PR, add `release-to-production` to the `ready-for-qa` issue. | `06 - Simulate production release` **rejects and removes** `release-to-production` and comments that a linked PR must be merged into `main` first. |
-| D3 | Merge the PR into `main`. | Linked PR is merged on `main` and `Build and test` runs on `main`. |
-| D4 *(optional)* | Run `gh aw run release-readiness-audit --raw-field issue_number=<ISSUE>` (or **Actions → `AW 07 - Pre-release readiness audit`**). | `AW 07 - Pre-release readiness audit` posts one replaceable Go/No-Go checklist verifying `ready-for-qa`, merged closing PR on `main`, and green `main` CI, without mutating labels. |
-| D5 | Add `release-to-production` to the issue (or retry via **Actions → `06 - Simulate production release`** with `issue_number`). | Workflow resolves and checks out an immutable `main` SHA, verifies `git merge-base --is-ancestor`, runs API tests + Node automation tests + web lint + web build, uploads the `simulated-production-release` artifact, adds `released`, and syncs Project status to `Done`. |
-| D6 | Download and inspect `release/manifest.json` from the `simulated-production-release` artifact. | Contains `commit` matching the tested `main` HEAD SHA, `issue`, `mergedPr`, `mergeCommit`, `run`, `releasedAt`, and `"environment": "simulation"`. |
+| Step | Action / trigger | Expected evidence | Manual action required to proceed |
+|---|---|---|---|
+| D1 *(optional)* | **Manual:** Run `gh aw run docs-drift-guard --raw-field pr_number=<PR> --raw-field open_pr=false` (or trigger via Actions UI). Optionally re-run with `open_pr=true`. | Posts one comment listing confirmed doc drift (or confirming no drift) without opening a PR; with `open_pr=true`, creates at most one draft `[docs]` PR if drift exists. | Continue to **D2** (keep the feature PR **unmerged** if you want to test premature release rejection). |
+| D2 *(gate test)* | **Manual:** **Before** merging the PR, add the `release-to-production` label to the `ready-for-qa` issue. | `06 - Simulate production release` runs automatically, **rejects and removes** `release-to-production`, and comments that a linked PR must be merged into `main` first. | Confirm `release-to-production` was removed, then proceed to **D3**. |
+| D3 | **Manual:** Click **Merge pull request** on the reviewed PR to merge it into `main`. | The PR merges into `main` (closing the linked issue automatically if `Closes #<ISSUE>` is present) and `Build and test` runs on `main`. | Wait for `Build and test` on `main` to go green. Go to **D4** for the optional Go/No-Go audit, or skip directly to **D5** to run the simulated release. |
+| D4 *(optional)* | **Manual:** Run `gh aw run release-readiness-audit --raw-field issue_number=<ISSUE>` (or **Actions → `AW 07 - Pre-release readiness audit` → Run workflow**). | `AW 07 - Pre-release readiness audit` posts one replaceable Go/No-Go checklist verifying `ready-for-qa`, merged closing PR on `main`, and green `main` CI, without mutating labels. | Review the Go/No-Go verdict, then proceed to **D5**. |
+| D5 | **Manual:** On the issue (which still has `ready-for-qa`), add the `release-to-production` label (or run **Actions → `06 - Simulate production release` → Run workflow** with `issue_number: <ISSUE>`). | Workflow resolves and checks out an immutable `main` SHA, verifies `git merge-base --is-ancestor`, runs API tests + Node automation tests + web lint + web build, uploads the `simulated-production-release` artifact, adds `released`, and syncs Project status to `Done`. | Wait for `06 - Simulate production release` to succeed (`released` label added), then complete **D6**. |
+| D6 | **Manual:** Open the completed `06 - Simulate production release` run in GitHub Actions, download the `simulated-production-release` artifact zip, and inspect `release/manifest.json`. | Contains `commit` matching the tested `main` HEAD SHA, `issue`, `mergedPr`, `mergeCommit`, `run`, `releasedAt`, and `"environment": "simulation"`. | **End of test plan.** (Optionally close any disposable test issues and delete temporary branches.) |
 
 **Recovery:** If a premature `release-to-production` label was added before `ready-for-qa`, the workflow removes it automatically. Once `ready-for-qa` is present and the PR is merged, re-apply `release-to-production` or run `06 - Simulate production release` via `workflow_dispatch`.
 
