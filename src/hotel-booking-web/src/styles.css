@@ -114,6 +114,7 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; display: grid; gap: 1
 .cancel-confirm p { flex-basis: 100%; }
 .site-footer { margin-top: 65px; padding-block: 30px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px; }
 .site-footer p { font-family: Georgia, serif; font-style: italic; }
+.site-footer .footer-date { flex-basis: 100%; font-family: inherit; font-style: normal; font-size: .75rem; color: var(--muted); }
 .site-footer > .small { color: var(--muted); }
 .skip-link { position: absolute; top: -100px; left: 20px; z-index: 2; background: #fffefa; padding: 12px; }
 .skip-link:focus { top: 10px; }
