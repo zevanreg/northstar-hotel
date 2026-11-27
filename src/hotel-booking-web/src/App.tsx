@@ -136,6 +136,7 @@ export default function App() {
   }
 
   const availableCount = rooms.filter(room => room.isAvailable).length
+  const today = dateAfter(0)
   return (
     <>
       <a className="skip-link" href="#main">Skip to booking</a>
@@ -229,7 +230,7 @@ export default function App() {
           </section>
         </div>
       </main>
-      <footer className="wrap site-footer"><span className="wordmark">NORTHSTAR<span>HOTEL &amp; HARBOUR</span></span><p>A good place to pause.</p><span className="small">Local workshop demo / No payments</span></footer>
+      <footer className="wrap site-footer"><span className="wordmark">NORTHSTAR<span>HOTEL &amp; HARBOUR</span></span><p>A good place to pause.</p><span className="small">Local workshop demo / No payments<br />Today (UTC): <time dateTime={today}>{formatDate(today)}</time></span></footer>
     </>
   )
 }
