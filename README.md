@@ -20,7 +20,7 @@ npm ci
 npm run dev
 ```
 
-Open <http://localhost:5173>. Expect six room cards and an availability search prefilled for a two-night stay next week. Choose a room, enter **fictional** guest details, and book. Under Current bookings, select **Edit dates**, review the new total, and save; then cancel the booking.
+Open <http://localhost:5173>. Expect six room cards with Solo, Couples, or Family occupancy badges alongside each room's numeric capacity, and an availability search prefilled for a two-night stay next week. Choose a room, enter **fictional** guest details, and book. Under Current bookings, select **Edit dates**, review the new total, and save; then cancel the booking.
 
 If an amendment conflicts, the original stay remains unchanged; choose different dates and save again. If requests fail, check the API terminal and <http://localhost:5050/api/rooms>. Vite forwards `/api` to port 5050; restart the API on that port. If Vite reports a port conflict, stop your own existing server before retrying.
 
