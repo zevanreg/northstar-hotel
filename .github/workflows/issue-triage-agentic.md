@@ -28,6 +28,7 @@ safe-outputs:
   create-issue: false
   threat-detection: false
   add-labels:
+    target: "*"
     allowed:
       - "area:*"
       - "kind:*"
@@ -42,6 +43,7 @@ safe-outputs:
       - "released"
     max: 5
   remove-labels:
+    target: "*"
     allowed:
       - "area:*"
       - "kind:*"
@@ -56,6 +58,7 @@ safe-outputs:
       - "released"
     max: 6
   add-comment:
+    target: "*"
     max: 1
     replace-older-comments: true
 

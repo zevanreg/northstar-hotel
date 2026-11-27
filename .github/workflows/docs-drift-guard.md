@@ -32,6 +32,7 @@ safe-outputs:
   create-issue: false
   threat-detection: false
   add-comment:
+    target: "*"
     max: 1
     replace-older-comments: true
   create-pull-request:

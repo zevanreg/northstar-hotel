@@ -30,6 +30,7 @@ safe-outputs:
   create-issue: false
   threat-detection: false
   add-labels:
+    target: "*"
     allowed:
       - "agent:*"
     blocked:
@@ -40,6 +41,7 @@ safe-outputs:
       - "released"
     max: 5
   remove-labels:
+    target: "*"
     allowed:
       - "agent:*"
     blocked:
@@ -50,8 +52,10 @@ safe-outputs:
       - "released"
     max: 5
   assign-to-user:
+    target: "*"
     max: 3
   add-comment:
+    target: "*"
     max: 5
     replace-older-comments: true
 ---
