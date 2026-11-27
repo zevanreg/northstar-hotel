@@ -27,6 +27,7 @@ tools:
 
 safe-outputs:
   create-issue: false
+  threat-detection: false
   add-comment:
     max: 1
     replace-older-comments: true

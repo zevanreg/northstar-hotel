@@ -28,6 +28,7 @@ tools:
 
 safe-outputs:
   create-issue: false
+  threat-detection: false
   add-labels:
     allowed:
       - "agent:*"
