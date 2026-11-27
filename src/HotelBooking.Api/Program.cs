@@ -103,12 +103,17 @@ app.MapPatch("/api/bookings/{id:int}", async (int id, UpdateBookingDatesRequest 
     .Produces(StatusCodes.Status404NotFound)
     .Produces(StatusCodes.Status409Conflict);
 
-app.MapDelete("/api/bookings/{id:int}", async (int id, HotelDbContext db, CancellationToken ct) =>
+app.MapDelete("/api/bookings/{id:int}", async (int id, HotelDbContext db, ILogger<Program> logger, CancellationToken ct) =>
 {
     var booking = await db.Bookings.FindAsync([id], ct);
-    if (booking is null) return Results.NotFound();
+    if (booking is null)
+    {
+        logger.LogWarning("Cannot cancel missing booking {BookingId}.", id);
+        return Results.NotFound();
+    }
     db.Bookings.Remove(booking);
     await db.SaveChangesAsync(ct);
+    logger.LogInformation("Cancelled booking {BookingId} for room {RoomId}.", booking.Id, booking.RoomId);
     return Results.NoContent();
 });
 

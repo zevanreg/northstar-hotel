@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using HotelBooking.Api.Contracts;
@@ -8,6 +9,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace HotelBooking.Api.Tests;
@@ -15,6 +17,7 @@ namespace HotelBooking.Api.Tests;
 public sealed class HotelFactory : WebApplicationFactory<Program>
 {
     private readonly SqliteConnection connection = new($"Data Source=hotel-{Guid.NewGuid():N};Mode=Memory;Cache=Shared");
+    public BookingLogProvider BookingLogs { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -25,6 +28,7 @@ public sealed class HotelFactory : WebApplicationFactory<Program>
             services.AddDbContext<HotelDbContext>(options => options.UseSqlite(connection.ConnectionString));
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(new HotelClock());
+            services.AddSingleton<ILoggerProvider>(BookingLogs);
         });
     }
 
@@ -40,10 +44,106 @@ public sealed class HotelFactory : WebApplicationFactory<Program>
     }
 }
 
+public sealed class BookingLogProvider : ILoggerProvider
+{
+    public ConcurrentQueue<BookingLog> Entries { get; } = new();
+
+    public ILogger CreateLogger(string categoryName) => new CaptureLogger(categoryName, Entries);
+    public void Dispose() { }
+
+    private sealed class CaptureLogger(string categoryName, ConcurrentQueue<BookingLog> entries) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (categoryName == typeof(Program).FullName)
+                entries.Enqueue(new BookingLog(logLevel,
+                    Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(state).ToArray(),
+                    formatter(state, exception), exception));
+        }
+    }
+}
+
+public sealed record BookingLog(LogLevel Level, KeyValuePair<string, object?>[] State, string Message, Exception? Exception);
+
 public sealed class BookingTests
 {
     private static CreateBookingRequest Request(string start = "2099-06-10", string end = "2099-06-12", int roomId = 2, int guests = 2) =>
         new(roomId, "Sample Guest", "guest@example.test", guests, DateOnly.Parse(start), DateOnly.Parse(end));
+
+    [Fact]
+    public async Task Cancellation_logs_only_booking_and_room_ids_after_persisting()
+    {
+        using var factory = new HotelFactory();
+        using var client = factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/api/bookings", Request());
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var booking = await response.Content.ReadFromJsonAsync<BookingResponse>();
+        Assert.NotNull(booking);
+        factory.BookingLogs.Entries.Clear();
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/bookings/{booking.Id}")).StatusCode);
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<HotelDbContext>();
+        Assert.False(await db.Bookings.AnyAsync(existing => existing.Id == booking.Id));
+
+        var log = Assert.Single(factory.BookingLogs.Entries);
+        Assert.Equal(LogLevel.Information, log.Level);
+        Assert.Equal(
+            [
+                new KeyValuePair<string, object?>("BookingId", booking.Id),
+                new KeyValuePair<string, object?>("RoomId", booking.RoomId),
+                new KeyValuePair<string, object?>("{OriginalFormat}", "Cancelled booking {BookingId} for room {RoomId}.")
+            ], log.State);
+        Assert.Equal($"Cancelled booking {booking.Id} for room {booking.RoomId}.", log.Message);
+        Assert.Null(log.Exception);
+    }
+
+    [Fact]
+    public async Task Missing_cancellation_logs_only_requested_booking_id_as_warning()
+    {
+        using var factory = new HotelFactory();
+        using var client = factory.CreateClient();
+        factory.BookingLogs.Entries.Clear();
+
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync("/api/bookings/999")).StatusCode);
+
+        var log = Assert.Single(factory.BookingLogs.Entries);
+        Assert.Equal(LogLevel.Warning, log.Level);
+        Assert.Equal(
+            [
+                new KeyValuePair<string, object?>("BookingId", 999),
+                new KeyValuePair<string, object?>("{OriginalFormat}", "Cannot cancel missing booking {BookingId}.")
+            ], log.State);
+        Assert.Equal("Cannot cancel missing booking 999.", log.Message);
+        Assert.Null(log.Exception);
+    }
+
+    [Fact]
+    public async Task Failed_cancellation_save_does_not_log_success()
+    {
+        using var factory = new HotelFactory();
+        using var client = factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/api/bookings", Request());
+        var booking = await response.Content.ReadFromJsonAsync<BookingResponse>();
+        Assert.NotNull(booking);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HotelDbContext>();
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER reject_cancellation BEFORE DELETE ON Bookings BEGIN SELECT RAISE(ABORT, 'Synthetic save failure'); END;");
+        }
+        factory.BookingLogs.Entries.Clear();
+
+        Assert.Equal(HttpStatusCode.InternalServerError, (await client.DeleteAsync($"/api/bookings/{booking.Id}")).StatusCode);
+        using var verificationScope = factory.Services.CreateScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<HotelDbContext>();
+        Assert.True(await verificationDb.Bookings.AnyAsync(existing => existing.Id == booking.Id));
+        Assert.Empty(factory.BookingLogs.Entries);
+    }
 
     [Fact]
     public async Task Guest_can_search_book_read_and_cancel_with_exact_decimal_price()
