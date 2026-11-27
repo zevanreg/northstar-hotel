@@ -221,6 +221,89 @@ function findMergedClosingPrs({ closedByPrs = [], closedEvents = [], owner, repo
   return [...byNumber.values()]
 }
 
+function isCopilotLogin(user) {
+  const login = (typeof user === 'string' ? user : user?.login || '').toLowerCase()
+  return login === 'copilot' || login === 'copilot-swe-agent[bot]' || login.startsWith('copilot-swe-agent')
+}
+
+function evaluateCopilotDraftReadiness({ pr, timelineEvents = [], checkRuns = [], owner, repo }) {
+  if (!pr) {
+    return { ready: false, reason: 'Pull request details were not found.' }
+  }
+
+  const state = (pr.state || '').toUpperCase()
+  const isDraft = Boolean(pr.isDraft ?? pr.draft)
+  const headSha = pr.headRefOid || pr.head?.sha || ''
+  const headRef = pr.headRefName || pr.head?.ref || ''
+  const headRepo = (
+    pr.headRepository?.nameWithOwner
+    || pr.head?.repo?.full_name
+    || ''
+  ).toLowerCase()
+  const expectedRepo = `${owner}/${repo}`.toLowerCase()
+
+  if (state !== 'OPEN') {
+    return { ready: false, headSha, reason: `Pull request is ${state.toLowerCase()}, not open.` }
+  }
+  if (!isDraft) {
+    return { ready: false, headSha, reason: 'Pull request is already ready for review.' }
+  }
+  if (!headRepo || headRepo !== expectedRepo) {
+    return { ready: false, headSha, reason: 'Pull request is not from the same repository.' }
+  }
+
+  const assignedToCopilot = Array.isArray(pr.assignees) && pr.assignees.some(isCopilotLogin)
+  if (!headRef.startsWith('copilot/') && !assignedToCopilot) {
+    return { ready: false, headSha, reason: 'Pull request is not a Copilot cloud agent pull request.' }
+  }
+
+  if (/^\s*\[wip\]/i.test(pr.title || '')) {
+    return { ready: false, headSha, reason: 'Pull request title still starts with [WIP].' }
+  }
+
+  if (!headSha) {
+    return { ready: false, headSha, reason: 'Pull request head commit SHA is missing.' }
+  }
+
+  let latestStartedMs = -1
+  let latestFinishedMs = -1
+  for (const event of timelineEvents) {
+    if (!event) continue
+    const ts = Date.parse(event.created_at || event.createdAt || '')
+    if (Number.isNaN(ts)) continue
+    if (event.event === 'copilot_work_started' && ts > latestStartedMs) {
+      latestStartedMs = ts
+    } else if (event.event === 'copilot_work_finished' && ts > latestFinishedMs) {
+      latestFinishedMs = ts
+    }
+  }
+
+  if (latestFinishedMs < 0) {
+    return { ready: false, headSha, reason: 'Copilot cloud agent has not emitted copilot_work_finished yet.' }
+  }
+  if (latestStartedMs >= 0 && latestFinishedMs <= latestStartedMs) {
+    return { ready: false, headSha, reason: 'Copilot cloud agent still has an active work session.' }
+  }
+
+  const matchingValidateRuns = checkRuns
+    .filter((run) => run?.name === 'validate' && (!run.head_sha || run.head_sha === headSha))
+    .sort((left, right) => Date.parse(left.started_at || 0) - Date.parse(right.started_at || 0))
+  const latestValidate = matchingValidateRuns[matchingValidateRuns.length - 1]
+
+  if (!latestValidate || latestValidate.status !== 'completed') {
+    return { ready: false, headSha, reason: `The validate check has not completed for head commit ${headSha.slice(0, 7)}.` }
+  }
+  if (latestValidate.conclusion !== 'success') {
+    return { ready: false, headSha, reason: `The validate check concluded with ${latestValidate.conclusion} for head commit ${headSha.slice(0, 7)}.` }
+  }
+
+  return {
+    ready: true,
+    headSha,
+    reason: `Copilot finished work and validate passed for head commit ${headSha.slice(0, 7)}.`
+  }
+}
+
 function chooseCustomAgent(labelNames) {
   const labels = new Set(labelNames)
 
@@ -331,6 +414,7 @@ module.exports = {
   computeRequirementFingerprint,
   countUnresolvedCopilotThreads,
   ensureLabels,
+  evaluateCopilotDraftReadiness,
   evaluateQaPromotion,
   evaluateReleaseGate,
   filterLocalClosingIssues,

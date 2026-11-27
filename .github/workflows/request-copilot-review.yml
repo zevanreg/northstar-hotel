@@ -2,15 +2,124 @@ name: 04 - Start automatic Copilot code review
 
 on:
   pull_request:
-    types: [opened, ready_for_review]
+    types: [opened, ready_for_review, edited, review_requested]
+  workflow_run:
+    workflows: ["Build and test"]
+    types: [completed]
 
 permissions:
+  actions: read
+  checks: read
   contents: read
+  issues: read
   pull-requests: write
 
+concurrency:
+  group: review-pr-${{ github.event.pull_request.number || github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
 jobs:
+  ready-copilot-draft:
+    if: ${{ (github.event_name == 'pull_request' && (github.event.action == 'edited' || github.event.action == 'review_requested') && github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Mark finished Copilot draft PR ready and request Copilot review
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const automation = require('./.github/scripts/issue-automation.js')
+            const { owner, repo } = context.repo
+
+            const candidatePrNumbers = []
+            if (context.eventName === 'pull_request') {
+              candidatePrNumbers.push(context.payload.pull_request.number)
+            } else if (context.eventName === 'workflow_run') {
+              const run = context.payload.workflow_run
+              for (const pr of run.pull_requests || []) {
+                if (pr.base?.repo?.full_name?.toLowerCase() === `${owner}/${repo}`.toLowerCase()) {
+                  candidatePrNumbers.push(pr.number)
+                }
+              }
+              if (candidatePrNumbers.length === 0 && run.head_sha) {
+                const openPrs = await github.paginate(github.rest.pulls.list, {
+                  owner,
+                  repo,
+                  state: 'open',
+                  per_page: 100
+                })
+                for (const pr of openPrs) {
+                  if (pr.draft && pr.head?.sha === run.head_sha) {
+                    candidatePrNumbers.push(pr.number)
+                  }
+                }
+              }
+            }
+
+            for (const prNumber of [...new Set(candidatePrNumbers)]) {
+              const { data: pr } = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: prNumber
+              })
+              if (!pr.draft) continue
+
+              const timelineEvents = await github.paginate(github.rest.issues.listEventsForTimeline, {
+                owner,
+                repo,
+                issue_number: prNumber,
+                per_page: 100
+              })
+              const checkRuns = await github.paginate(github.rest.checks.listForRef, {
+                owner,
+                repo,
+                ref: pr.head.sha,
+                per_page: 100
+              })
+
+              const evaluation = automation.evaluateCopilotDraftReadiness({
+                pr,
+                timelineEvents,
+                checkRuns,
+                owner,
+                repo
+              })
+
+              if (!evaluation.ready) {
+                core.notice(`PR #${prNumber} not marked ready: ${evaluation.reason}`)
+                continue
+              }
+
+              await github.graphql(`mutation($id: ID!) {
+                markPullRequestReadyForReview(input: { pullRequestId: $id }) {
+                  pullRequest { isDraft }
+                }
+              }`, { id: pr.node_id })
+              core.notice(`Marked Copilot draft PR #${prNumber} ready for review at ${pr.head.sha.slice(0, 7)}.`)
+
+              try {
+                await github.rest.pulls.requestReviewers({
+                  owner,
+                  repo,
+                  pull_number: prNumber,
+                  reviewers: ['copilot-pull-request-reviewer[bot]']
+                })
+                core.notice(`Requested Copilot code review on PR #${prNumber}.`)
+              } catch (error) {
+                core.warning(`Could not request Copilot review on PR #${prNumber}: ${error.message}`)
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: prNumber,
+                  body: 'Automatic Copilot code review could not start. Confirm the organization code-review policy or enable automatic Copilot review in the repository ruleset.'
+                })
+              }
+            }
+
   review:
-    if: ${{ !github.event.pull_request.draft }}
+    if: ${{ github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'ready_for_review') && !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     env:
       GH_REPO: ${{ github.repository }}

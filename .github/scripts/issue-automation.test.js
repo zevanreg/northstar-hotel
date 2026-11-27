@@ -4,6 +4,7 @@ const {
   buildCopilotAssignment,
   chooseCustomAgent,
   computeRequirementFingerprint,
+  evaluateCopilotDraftReadiness,
   evaluateQaPromotion,
   evaluateReleaseGate,
   filterLocalClosingIssues,
@@ -175,4 +176,80 @@ test('rejects premature release gate and requires merged local closing PR on mai
   })
 
   assert.deepEqual(merged, [{ number: 12, mergeCommitSha: '333', url: '' }])
+})
+
+test('marks Copilot draft PR ready only after copilot_work_finished, [WIP] removal, and green validate', () => {
+  const headSha = 'ccccccc333333333333333333333333333333333'
+  const basePr = {
+    state: 'open',
+    draft: true,
+    title: 'Show current UTC date in the page footer',
+    head: { ref: 'copilot/add-footer', sha: headSha, repo: { full_name: 'zevanreg/northstar-hotel' } },
+    assignees: [{ login: 'Copilot' }]
+  }
+  const finishedTimeline = [
+    { event: 'copilot_work_started', created_at: '2026-11-27T07:15:54Z' },
+    { event: 'copilot_work_finished', created_at: '2026-11-27T07:20:17Z' }
+  ]
+  const passingChecks = [
+    { name: 'validate', head_sha: headSha, status: 'completed', conclusion: 'success', started_at: '2026-11-27T07:20:01Z' }
+  ]
+
+  assert.equal(
+    evaluateCopilotDraftReadiness({
+      pr: basePr,
+      timelineEvents: finishedTimeline,
+      checkRuns: passingChecks,
+      owner: 'zevanreg',
+      repo: 'northstar-hotel'
+    }).ready,
+    true
+  )
+
+  assert.equal(
+    evaluateCopilotDraftReadiness({
+      pr: { ...basePr, title: '[WIP] Show current UTC date in the page footer' },
+      timelineEvents: finishedTimeline,
+      checkRuns: passingChecks,
+      owner: 'zevanreg',
+      repo: 'northstar-hotel'
+    }).ready,
+    false
+  )
+
+  assert.equal(
+    evaluateCopilotDraftReadiness({
+      pr: basePr,
+      timelineEvents: [
+        ...finishedTimeline,
+        { event: 'copilot_work_started', created_at: '2026-11-27T07:25:00Z' }
+      ],
+      checkRuns: passingChecks,
+      owner: 'zevanreg',
+      repo: 'northstar-hotel'
+    }).ready,
+    false
+  )
+
+  assert.equal(
+    evaluateCopilotDraftReadiness({
+      pr: { ...basePr, head: { ...basePr.head, repo: { full_name: 'fork-user/northstar-hotel' } } },
+      timelineEvents: finishedTimeline,
+      checkRuns: passingChecks,
+      owner: 'zevanreg',
+      repo: 'northstar-hotel'
+    }).ready,
+    false
+  )
+
+  assert.equal(
+    evaluateCopilotDraftReadiness({
+      pr: basePr,
+      timelineEvents: finishedTimeline,
+      checkRuns: [{ name: 'validate', head_sha: headSha, status: 'completed', conclusion: 'failure', started_at: '2026-11-27T07:20:01Z' }],
+      owner: 'zevanreg',
+      repo: 'northstar-hotel'
+    }).ready,
+    false
+  )
 })

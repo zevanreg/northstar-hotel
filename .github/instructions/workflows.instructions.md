@@ -7,7 +7,7 @@ applyTo: ".github/workflows/**/*.yml,.github/scripts/**/*.js,.github/labels.json
 - Preserve the human gates: `ready-for-building`, `develop-with-ai`, and `release-to-production`.
 - Keep one single-owner workflow per SDLC stage (no duplicated deterministic/agentic triage or routing workflows):
   - Agentic (`gh-aw`, `.github/workflows/*.md` compiled via `gh aw compile` into `*.lock.yml`): issue triage (`01`), daily issue routing (`02`), CI failure investigation (`AW 04`), advisory QA audit (`AW 05`), documentation drift guard (`AW 06`), and pre-release readiness audit (`AW 07`).
-  - Deterministic (`.yml`): label bootstrap (`00`), Copilot delegation (`03`), CI (`Build and test`), automatic Copilot code review (`04`), SHA-bound QA promotion and stale-QA revocation (`05`), simulated release (`06`), and GitHub Project v2 sync.
+  - Deterministic (`.yml`): label bootstrap (`00`), Copilot delegation (`03`), Copilot environment pre-setup (`copilot-setup-steps.yml`), CI (`Build and test`), Copilot draft readiness + automatic Copilot code review (`04`), SHA-bound QA promotion and stale-QA revocation (`05`), simulated release (`06`), and GitHub Project v2 sync.
 - Mutate only workflow-owned labels (avoid full `setLabels` replacement) and serialize per-issue or per-PR workflow runs with `concurrency`.
 - Re-read live issue or PR state before privileged transitions; revoke stale `ready-for-building` deterministically on material requirement edits and stale `ready-for-qa` when new commits land on a PR.
 - Bind QA promotion and release simulation to exact commit SHAs (verify current PR head, resolved Copilot review threads, same-repo closing references, merged closing PR on `main`, and full test/lint/build validation).
